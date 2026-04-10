@@ -1,0 +1,1 @@
+Start-Process powershell -ArgumentList "-NoExit -Command `"cd backend; pip install -r requirements.txt; uvicorn main:app --reload --host 0.0.0.0 --port 8000`""; Start-Process powershell -ArgumentList "-NoExit -Command `"cd frontend; npm install; npm run dev`""
