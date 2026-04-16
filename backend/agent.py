@@ -64,10 +64,10 @@ def summarize_and_store_log(log_line: str, severity: str):
     except Exception as e:
         print(f"Error upserting to qdrant: {e}")
 
-import sqlite3
 import re
 import datetime
 from fpdf import FPDF
+from database import SessionLocal, LogEntry
 def chat_with_agent(query: str):
     """
     Response Agent: Takes user query, looks up Qdrant, and responds.
@@ -98,35 +98,37 @@ def chat_with_agent(query: str):
     
     if "pdf" in query_lower or "report" in query_lower:
         try:
-            conn = sqlite3.connect('logs.db')
-            cursor = conn.cursor()
+            db = SessionLocal()
             
             min_match = re.search(r'last\s+(\d+)\s*min(?:s|ute|utes)?', query_lower)
             hour_match = re.search(r'last\s+(\d+)\s*hour(?:s)?', query_lower)
             
             now = datetime.datetime.now()
-            where_clauses = []
+            query_obj = db.query(LogEntry)
+            
             if min_match:
                 cutoff = now - datetime.timedelta(minutes=int(min_match.group(1)))
-                where_clauses.append(f"timeline >= '{cutoff.strftime('%Y-%m-%dT%H:%M:%SZ')}'")
+                query_obj = query_obj.filter(LogEntry.timeline >= cutoff.strftime('%Y-%m-%dT%H:%M:%SZ'))
             elif hour_match:
                 cutoff = now - datetime.timedelta(hours=int(hour_match.group(1)))
-                where_clauses.append(f"timeline >= '{cutoff.strftime('%Y-%m-%dT%H:%M:%SZ')}'")
+                query_obj = query_obj.filter(LogEntry.timeline >= cutoff.strftime('%Y-%m-%dT%H:%M:%SZ'))
                 
             status_conditions = []
             if "denied" in query_lower or "deny" in query_lower:
-                status_conditions.append("status='Denied'")
+                status_conditions.append("Denied")
             if "allowed" in query_lower or "allow" in query_lower:
-                status_conditions.append("status='Allowed'")
-            if "malicious" in query_lower or "critical" in query_lower:
-                status_conditions.append("severity='Critical'")
+                status_conditions.append("Allowed")
                 
-            if status_conditions:
-                where_clauses.append("(" + " OR ".join(status_conditions) + ")")
+            from sqlalchemy import or_
+            if status_conditions and ("malicious" in query_lower or "critical" in query_lower):
+                query_obj = query_obj.filter(or_(LogEntry.status.in_(status_conditions), LogEntry.severity == "Critical"))
+            elif status_conditions:
+                query_obj = query_obj.filter(LogEntry.status.in_(status_conditions))
+            elif "malicious" in query_lower or "critical" in query_lower:
+                query_obj = query_obj.filter(LogEntry.severity == "Critical")
                 
-            where_stmt = " WHERE " + " AND ".join(where_clauses) if where_clauses else ""
-            cursor.execute(f"SELECT raw_log, severity FROM logs {where_stmt} ORDER BY id DESC LIMIT 200")
-            res = cursor.fetchall()
+            res_db = query_obj.order_by(LogEntry.id.desc()).limit(200).all()
+            res = [(r.raw_log, r.severity) for r in res_db]
             
             src_ips = {}
             dest_ips = set()
@@ -483,20 +485,15 @@ def chat_with_agent(query: str):
         except Exception as e:
             return {"response": f"Failed to generate PDF report: {str(e)}"}
         finally:
-            if 'conn' in locals():
-                conn.close()
+            if 'db' in locals():
+                db.close()
                 
 
     llm, embeddings = get_llm_and_embeddings()
     if not llm:
         # Dynamic Mock Agent
         try:
-            conn = sqlite3.connect('logs.db')
-            cursor = conn.cursor()
-            
-            # Simple Regex-like extraction for time
-            time_filter = ""
-            limit_count = 20  # Default to slightly more logs than 3
+            db = SessionLocal()
             
             # Match "last X min" or "last X hour/hr" etc
             min_match = re.search(r'last\s+(\d+)\s*min(?:s|ute|utes)?', query_lower)
@@ -512,10 +509,12 @@ def chat_with_agent(query: str):
                 hours = int(hour_match.group(1))
                 cutoff = now - datetime.timedelta(hours=hours)
 
+            query_obj = db.query(LogEntry)
+            cutoff_str = ""
+            limit_count = 20
             if cutoff:
                 cutoff_str = cutoff.strftime("%Y-%m-%dT%H:%M:%SZ")
-                # When asking for a timeframe, remove the strict limit and return up to 500 logs for the report
-                time_filter = f" AND timeline >= '{cutoff_str}'"
+                query_obj = query_obj.filter(LogEntry.timeline >= cutoff_str)
                 limit_count = 500
                 
             # First priority: Contextual questions about recommendations
@@ -536,32 +535,28 @@ Correlate the offending IPs against OpenCTI or AbuseIPDB to determine if this is
 
             # If the user just asks "logs" without any specific status filter:
             if "denied" in query_lower or "deny" in query_lower:
-                cursor.execute(f"SELECT raw_log FROM logs WHERE status='Denied'{time_filter} ORDER BY id DESC LIMIT {limit_count}")
-                res = cursor.fetchall()
+                res = query_obj.filter(LogEntry.status == 'Denied').order_by(LogEntry.id.desc()).limit(limit_count).all()
                 if res:
-                    logs_str = "\n".join([f"- {r[0]}" for r in res])
+                    logs_str = "\n".join([f"- {r.raw_log}" for r in res])
                     return f"[CrewAI Orchestrator -> Mistral Sub-Agent] Task Complete:\nI analyzed the Apache Atlas logs via LlamaIndex. Found these Denied IPs bridging the Zero-Trust mesh within the requested parameters:\n{logs_str}"
                 return "[CrewAI Orchestrator] No denied events found matching your query parameters."
             elif "malicious" in query_lower or "critical" in query_lower:
-                cursor.execute(f"SELECT raw_log FROM logs WHERE severity='Critical'{time_filter} ORDER BY id DESC LIMIT {limit_count}")
-                res = cursor.fetchall()
+                res = query_obj.filter(LogEntry.severity == 'Critical').order_by(LogEntry.id.desc()).limit(limit_count).all()
                 if res:
-                    logs_str = "\n".join([f"- {r[0]}" for r in res])
+                    logs_str = "\n".join([f"- {r.raw_log}" for r in res])
                     return f"[Alert from NVIDIA NeMo Agent]\nMalicious traffic signature detected by SiliconFlow inference! Extracted target vectors:\n{logs_str}"
                 return "[timbr.ai Analyzer] Network graphs look clear of any critical topology breaches matching your time bounds."
             elif "allowed" in query_lower or "allow" in query_lower:
-                cursor.execute(f"SELECT raw_log FROM logs WHERE status='Allowed'{time_filter} ORDER BY id DESC LIMIT {limit_count}")
-                res = cursor.fetchall()
+                res = query_obj.filter(LogEntry.status == 'Allowed').order_by(LogEntry.id.desc()).limit(limit_count).all()
                 if res:
-                    logs_str = "\n".join([f"- {r[0]}" for r in res])
+                    logs_str = "\n".join([f"- {r.raw_log}" for r in res])
                     return f"[Chat4ED LlamaIndex Result] Filtered standard allowed flow through Apache NiFi context:\n{logs_str}"
                 return "[Mistral Retrieval] Zero 'Allowed' packets matched the temporal window requested."
             else:
                 # General query for ANY logs in the timeframe (since user might ask 'give me last 5 mins logs' without status)
-                cursor.execute(f"SELECT raw_log FROM logs WHERE 1=1 {time_filter} ORDER BY id DESC LIMIT {limit_count}")
-                res = cursor.fetchall()
-                if res and time_filter:
-                    logs_str = "\n".join([f"- {r[0]}" for r in res])
+                res = query_obj.order_by(LogEntry.id.desc()).limit(limit_count).all()
+                if res and cutoff:
+                    logs_str = "\n".join([f"- {r.raw_log}" for r in res])
                     report = f"""**INCIDENT REPORTING FORM**
 *dZshield-SOC-F-02*
 
@@ -596,16 +591,14 @@ https://www.virustotal.com/gui/
 """
                     return report
                 
-            cursor.execute("SELECT COUNT(*) FROM logs")
-            total = cursor.fetchone()[0]
-            cursor.execute("SELECT COUNT(*) FROM logs WHERE severity='Critical'")
-            critical = cursor.fetchone()[0]
+            total = db.query(LogEntry).count()
+            critical = db.query(LogEntry).filter(LogEntry.severity == 'Critical').count()
             return f"[dZshield SOC Summary]\nCurrently tracking {total} network packets across the Kubernetes cluster.\nNVIDIA NeMo agents have blocked {critical} critical attempts. (Try asking to 'show malicious logs')."
         except Exception as e:
             return f"Demo Mode Error: {e}"
         finally:
-            if 'conn' in locals():
-                 conn.close()
+            if 'db' in locals():
+                 db.close()
 
     # RAG Lookups
     try:

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Shield, ShieldAlert, Activity, Search, MessageCircle, Database, Server, Network, Brain, Maximize2, Minimize2, ExternalLink, Trash2, Download } from 'lucide-react';
+import { Shield, ShieldAlert, Activity, Search, MessageCircle, Database, Server, Network, Brain, Maximize2, Minimize2, ExternalLink, Trash2, Download, Settings, Sun, Moon, UserPlus, X } from 'lucide-react';
 import {
   AreaChart, Area, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend
@@ -8,6 +8,28 @@ import {
 const API_BASE = `http://${window.location.hostname}:8000/api`;
 
 function App() {
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [loginUsername, setLoginUsername] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
+  const [loginError, setLoginError] = useState('');
+
+  const [showSettings, setShowSettings] = useState(false);
+  const [theme, setTheme] = useState("dark");
+  const [accentColor, setAccentColor] = useState("indigo");
+  const [isAdminUnlocked, setIsAdminUnlocked] = useState(false);
+  const [adminPasswordInput, setAdminPasswordInput] = useState("");
+  const [newUsername, setNewUsername] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+
+  const [customUsers, setCustomUsers] = useState(() => {
+    const saved = localStorage.getItem("customUsers");
+    return saved ? JSON.parse(saved) : [];
+  });
+
+  useEffect(() => {
+    localStorage.setItem("customUsers", JSON.stringify(customUsers));
+  }, [customUsers]);
+
   const [logs, setLogs] = useState([]);
   const [activeTab, setActiveTab] = useState("All");
   const [timeRange, setTimeRange] = useState("");
@@ -166,8 +188,88 @@ function App() {
 
   const { timeSeries, severityData } = chartData;
 
+  const handleLogin = (e) => {
+    e.preventDefault();
+    if (loginUsername === 'rajendra.panga@digiedze.com' && loginPassword === 'Cisco@123456') {
+      setIsAuthenticated(true);
+      setLoginError('');
+      return;
+    }
+    const isCustom = customUsers.find(u => u.username === loginUsername && u.password === loginPassword);
+    if (isCustom) {
+      setIsAuthenticated(true);
+      setLoginError('');
+      return;
+    }
+    setLoginError('Invalid username or password');
+  };
+
+  const checkPasswordStrength = (pwd) => {
+    if (!pwd) return null;
+    const isStrong = pwd.length >= 8 && /[A-Z]/.test(pwd) && /[0-9]/.test(pwd) && /[^A-Za-z0-9]/.test(pwd);
+    return isStrong ? 'Strong' : 'Weak';
+  };
+
+  if (!isAuthenticated) {
+    const strength = checkPasswordStrength(loginPassword);
+    return (
+      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center font-sans p-4">
+        <div className="bg-slate-900 border border-slate-800 p-8 rounded-xl shadow-2xl max-w-md w-full relative overflow-hidden">
+          <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-indigo-500 to-cyan-400"></div>
+          <div className="flex items-center gap-3 mb-8 justify-center">
+            <ShieldAlert className="h-10 w-10 text-indigo-500" />
+            <h1 className="text-2xl font-bold bg-gradient-to-r from-indigo-400 to-cyan-400 bg-clip-text text-transparent">
+              BrahMos SOC Login
+            </h1>
+          </div>
+          
+          <form onSubmit={handleLogin} className="space-y-5">
+            <div>
+              <label className="block text-sm font-medium text-slate-300 mb-2">Username</label>
+              <input
+                type="text"
+                value={loginUsername}
+                onChange={(e) => setLoginUsername(e.target.value)}
+                className="w-full bg-slate-950 border border-slate-700 rounded-lg py-3 px-4 text-white focus:outline-none focus:border-indigo-500 transition-colors"
+                placeholder="Enter username"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-300 mb-2">Password</label>
+              <input
+                type="password"
+                value={loginPassword}
+                onChange={(e) => setLoginPassword(e.target.value)}
+                className="w-full bg-slate-950 border border-slate-700 rounded-lg py-3 px-4 text-white focus:outline-none focus:border-indigo-500 transition-colors"
+                placeholder="Enter password"
+              />
+              {loginPassword && (
+                <div className="mt-2 flex items-center justify-between text-xs font-semibold">
+                  <span>Password Strength:</span>
+                  <span className={strength === 'Strong' ? 'text-green-500' : 'text-orange-500'}>
+                    {strength}
+                  </span>
+                </div>
+              )}
+            </div>
+            
+            {loginError && (
+              <div className="text-red-400 text-sm bg-red-500/10 border border-red-500/20 p-3 rounded text-center">
+                {loginError}
+              </div>
+            )}
+            
+            <button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3 px-4 rounded-lg transition-colors shadow-lg shadow-indigo-900/20">
+              Access Console
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="min-h-screen bg-slate-950 p-6 font-sans">
+    <div className={`min-h-screen ${theme === 'light' ? 'bg-slate-50 text-slate-900' : 'bg-slate-950 text-white'} p-6 font-sans transition-colors duration-300`}>
       <header className="mb-4 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <ShieldAlert className="h-8 w-8 text-indigo-500" />
@@ -182,19 +284,25 @@ function App() {
           )}
         </div>
         <div className="flex gap-4">
-          <div className="bg-slate-900 px-4 py-2 rounded-lg border border-slate-800 flex items-center gap-2">
+          <div className={`px-4 py-2 rounded-lg border flex items-center gap-2 ${theme==='light' ? 'bg-white border-slate-200' : 'bg-slate-900 border-slate-800'}`}>
             <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse"></div>
-            <span className="text-sm font-medium">Critical (L2 NiFi): {maliciousCount}</span>
+            <span className={`text-sm font-medium ${theme==='light' ? 'text-slate-800' : 'text-white'}`}>Critical (L2 NiFi): {maliciousCount}</span>
           </div>
-          <div className="bg-slate-900 px-4 py-2 rounded-lg border border-slate-800 flex items-center gap-2">
+          <div className={`px-4 py-2 rounded-lg border flex items-center gap-2 ${theme==='light' ? 'bg-white border-slate-200' : 'bg-slate-900 border-slate-800'}`}>
             <div className="w-2 h-2 rounded-full bg-orange-500"></div>
-            <span className="text-sm font-medium">Denied (L1 K8s): {deniedCount}</span>
+            <span className={`text-sm font-medium ${theme==='light' ? 'text-slate-800' : 'text-white'}`}>Denied (L1 K8s): {deniedCount}</span>
           </div>
+          <button 
+            onClick={() => setShowSettings(true)}
+            className={`p-2 rounded-lg border transition-colors ${theme==='light' ? 'bg-white border-slate-200 text-slate-500 hover:text-slate-800 hover:bg-slate-50' : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white hover:bg-slate-800'}`}
+          >
+            <Settings className="w-5 h-5" />
+          </button>
         </div>
       </header>
 
       {/* Navigation & Filters */}
-      <div className="flex flex-col lg:flex-row justify-between items-center bg-slate-900 p-4 rounded-xl shadow-xl border border-slate-800 mb-6 gap-4">
+      <div className={`flex flex-col lg:flex-row justify-between items-center p-4 rounded-xl shadow-xl border mb-6 gap-4 ${theme==='light' ? 'bg-white border-slate-200' : 'bg-slate-900 border-slate-800'}`}>
         <div className="flex gap-2 w-full lg:w-auto overflow-x-auto">
           {['All', 'Allowed', 'Denied', 'Malicious'].map(tab => (
             <button
@@ -496,6 +604,110 @@ function App() {
       </div>
       {isChatMaximized && (
         <div className="fixed inset-0 bg-black/60 z-40 backdrop-blur-sm" onClick={() => setIsChatMaximized(false)}></div>
+      )}
+
+      {/* Settings Modal */}
+      {showSettings && (
+        <div className="fixed inset-0 bg-black/60 z-50 backdrop-blur-sm flex items-center justify-center font-sans p-4">
+          <div className="bg-slate-900 border border-slate-700 p-6 rounded-xl shadow-2xl max-w-md w-full relative">
+            <button onClick={() => setShowSettings(false)} className="absolute top-4 right-4 text-slate-400 hover:text-white">
+              <X className="w-5 h-5" />
+            </button>
+            <h2 className="text-xl font-bold bg-gradient-to-r from-indigo-400 to-cyan-400 bg-clip-text text-transparent mb-6">
+              Dashboard Settings
+            </h2>
+            
+            <div className="space-y-6">
+              <div>
+                <h3 className="text-sm font-semibold text-slate-300 mb-3">Theme Settings</h3>
+                <div className="flex gap-3">
+                   <button onClick={() => setTheme('dark')} className={`flex items-center gap-2 px-3 py-2 rounded-lg border transition-colors ${theme==='dark' ? 'border-indigo-500 bg-indigo-500/20 text-white' : 'border-slate-700 text-slate-400 hover:bg-slate-800'}`}>
+                     <Moon className="w-4 h-4"/> Dark
+                   </button>
+                   <button onClick={() => setTheme('light')} className={`flex items-center gap-2 px-3 py-2 rounded-lg border transition-colors ${theme==='light' ? 'border-indigo-500 bg-indigo-500/20 text-white' : 'border-slate-700 text-slate-400 hover:bg-slate-800'}`}>
+                     <Sun className="w-4 h-4"/> Light
+                   </button>
+                </div>
+              </div>
+
+              <div>
+                <h3 className="text-sm font-semibold text-slate-300 mb-3">Accent Color</h3>
+                <div className="flex gap-2">
+                  {['indigo', 'emerald', 'blue', 'orange'].map(color => (
+                     <button key={color} onClick={() => setAccentColor(color)} className={`w-8 h-8 rounded-full border-2 transition-transform hover:scale-110 ${accentColor === color ? 'border-white' : 'border-transparent'}`} style={{ backgroundColor: color === 'indigo' ? '#6366f1' : color === 'emerald' ? '#10b981' : color === 'blue' ? '#3b82f6' : '#f97316' }} />
+                  ))}
+                </div>
+              </div>
+
+              <div className="border-t border-slate-700 pt-6">
+                <h3 className="text-sm font-semibold text-slate-300 mb-3">Admin Panel (User Management)</h3>
+                {!isAdminUnlocked ? (
+                  <div className="space-y-3">
+                    <input 
+                       type="password" 
+                       placeholder="Admin Password"
+                       value={adminPasswordInput}
+                       onChange={e => setAdminPasswordInput(e.target.value)}
+                       className="w-full bg-slate-950 border border-slate-700 rounded-lg py-2 px-3 text-sm text-white focus:outline-none focus:border-indigo-500"
+                    />
+                    <button 
+                       onClick={() => {
+                         if(adminPasswordInput === 'Cisco@12345') setIsAdminUnlocked(true);
+                         else alert('Invalid Admin Password');
+                       }}
+                       className="w-full bg-slate-800 hover:bg-slate-700 text-slate-200 py-2 rounded-lg text-sm font-medium transition-colors border border-slate-700"
+                    >
+                      Unlock Admin Functions
+                    </button>
+                  </div>
+                ) : (
+                  <div className="bg-slate-950/50 p-4 rounded-lg border border-slate-800 space-y-3">
+                    <h4 className="text-xs font-bold text-indigo-400 uppercase tracking-wider mb-2 flex items-center gap-2"><UserPlus className="w-3 h-3"/> Manage Users</h4>
+                    {customUsers.length > 0 && (
+                      <div className="mb-4 space-y-2">
+                        {customUsers.map((u, i) => (
+                           <div key={i} className="flex justify-between items-center bg-slate-900 border border-slate-700 p-2 rounded">
+                              <span className="text-sm text-slate-300">{u.username}</span>
+                              <button onClick={() => setCustomUsers(customUsers.filter((_, idx) => idx !== i))} className="text-red-400 hover:text-red-300">
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                           </div>
+                        ))}
+                      </div>
+                    )}
+                    <input 
+                       type="text" 
+                       placeholder="New Username"
+                       value={newUsername}
+                       onChange={e => setNewUsername(e.target.value)}
+                       className="w-full bg-slate-900 border border-slate-700 rounded-lg py-2 px-3 text-sm text-white focus:outline-none focus:border-indigo-500"
+                    />
+                    <input 
+                       type="password" 
+                       placeholder="New Password"
+                       value={newPassword}
+                       onChange={e => setNewPassword(e.target.value)}
+                       className="w-full bg-slate-900 border border-slate-700 rounded-lg py-2 px-3 text-sm text-white focus:outline-none focus:border-indigo-500"
+                    />
+                    <button 
+                       onClick={() => {
+                         if(newUsername && newPassword) {
+                           setCustomUsers([...customUsers, {username: newUsername, password: newPassword}]);
+                           setNewUsername('');
+                           setNewPassword('');
+                           alert('User created successfully. They can now log in.');
+                         }
+                       }}
+                       className="w-full bg-indigo-600 hover:bg-indigo-500 text-white py-2 rounded-lg text-sm font-medium transition-colors"
+                    >
+                      Create User
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

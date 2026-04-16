@@ -7,7 +7,6 @@ import datetime
 import os
 import smtplib
 from email.message import EmailMessage
-
 from database import get_db, LogEntry
 from agent import summarize_and_store_log, chat_with_agent
 from fastapi.staticfiles import StaticFiles
