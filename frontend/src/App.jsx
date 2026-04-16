@@ -14,7 +14,7 @@ function App() {
   const [page, setPage] = useState(1);
   const [hasMaliciousAlert, setHasMaliciousAlert] = useState(false);
   const [lastCriticalId, setLastCriticalId] = useState(null);
-  
+
   const [chatQuery, setChatQuery] = useState("");
   const [chatHistory, setChatHistory] = useState(() => {
     const saved = localStorage.getItem("chatHistory");
@@ -47,50 +47,50 @@ function App() {
         const logsData = await logsRes.json();
         const statsData = await statsRes.json();
         const chartRawData = await chartRes.json();
-        
+
         if (isMounted) {
           // Client-Side Safeguard Filter: ensure the data matches the tab explicitly
           let filteredLogs = logsData;
           if (Array.isArray(logsData)) {
-              if (activeTab !== "All") {
-                  const filterTarget = activeTab === "Malicious" ? "Critical" : activeTab;
-                  filteredLogs = logsData.filter(l => 
-                      activeTab === "Malicious" ? l.severity === "Critical" : l.status === activeTab
-                  );
-              }
+            if (activeTab !== "All") {
+              const filterTarget = activeTab === "Malicious" ? "Critical" : activeTab;
+              filteredLogs = logsData.filter(l =>
+                activeTab === "Malicious" ? l.severity === "Critical" : l.status === activeTab
+              );
+            }
           }
 
           setLogs(filteredLogs);
           setStats(statsData);
-          
+
           // Determine if we have a fresh Malicious alert.
           if (filteredLogs && filteredLogs.length > 0) {
-              const newestLog = filteredLogs[0];
-              if (newestLog.severity === 'Critical') {
-                  // check if it's new
-                  setLastCriticalId(prevId => {
-                      if (prevId !== newestLog.id) {
-                          setHasMaliciousAlert(true);
-                          setTimeout(() => { if(isMounted) setHasMaliciousAlert(false); }, 3000);
-                          return newestLog.id;
-                      }
-                      return prevId;
-                  });
-              }
+            const newestLog = filteredLogs[0];
+            if (newestLog.severity === 'Critical') {
+              // check if it's new
+              setLastCriticalId(prevId => {
+                if (prevId !== newestLog.id) {
+                  setHasMaliciousAlert(true);
+                  setTimeout(() => { if (isMounted) setHasMaliciousAlert(false); }, 3000);
+                  return newestLog.id;
+                }
+                return prevId;
+              });
+            }
           }
-          
+
           processChartData(chartRawData);
         }
       } catch (err) {
         console.error("Failed to fetch data", err);
       }
     };
-    
+
     fetchData();
     const interval = setInterval(fetchData, 2000);
     return () => {
-        isMounted = false;
-        clearInterval(interval);
+      isMounted = false;
+      clearInterval(interval);
     };
   }, [activeTab, timeRange, page]);
 
@@ -129,30 +129,30 @@ function App() {
   // Chart Data Processing
   const processChartData = (apiChartData) => {
     let severityCount = { Critical: 0, High: 0, Low: 0 };
-    
+
     // apiChartData has 'count', 'Critical', 'High', and 'time' already correctly aggregated by backend
     let timeSeries = [];
     if (Array.isArray(apiChartData)) {
-        timeSeries = apiChartData.map(c => {
-           let timeKey = c.time;
-           const dateObj = new Date(c.time);
-           if (!isNaN(dateObj.getTime())) {
-               timeKey = dateObj.toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit' });
-           }
-           
-           severityCount.Critical += c.Critical;
-           severityCount.High += c.High;
-           const lows = Math.max(0, c.count - c.Critical - c.High);
-           severityCount.Low += lows;
-           
-           return {
-               time: timeKey,
-               count: c.count,
-               Critical: c.Critical,
-               High: c.High,
-               Low: lows
-           };
-        });
+      timeSeries = apiChartData.map(c => {
+        let timeKey = c.time;
+        const dateObj = new Date(c.time);
+        if (!isNaN(dateObj.getTime())) {
+          timeKey = dateObj.toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit' });
+        }
+
+        severityCount.Critical += c.Critical;
+        severityCount.High += c.High;
+        const lows = Math.max(0, c.count - c.Critical - c.High);
+        severityCount.Low += lows;
+
+        return {
+          time: timeKey,
+          count: c.count,
+          Critical: c.Critical,
+          High: c.High,
+          Low: lows
+        };
+      });
     }
 
     const severityData = [
@@ -172,13 +172,13 @@ function App() {
         <div className="flex items-center gap-3">
           <ShieldAlert className="h-8 w-8 text-indigo-500" />
           <h1 className="text-2xl font-bold bg-gradient-to-r from-indigo-400 to-cyan-400 bg-clip-text text-transparent">
-            dZshield Enterprise SOC Dashboard
+            BrahMos Enterprise SOC Dashboard
           </h1>
           {hasMaliciousAlert && (
-             <div className="ml-4 flex items-center gap-2 px-3 py-1 bg-red-900/50 border border-red-500 rounded-full animate-pulse transition-all">
-                <div className="w-2.5 h-2.5 bg-red-500 rounded-full shadow-[0_0_8px_rgba(239,68,68,0.8)]"></div>
-                <span className="text-xs text-red-400 font-bold tracking-wider">MALICIOUS ALERT</span>
-             </div>
+            <div className="ml-4 flex items-center gap-2 px-3 py-1 bg-red-900/50 border border-red-500 rounded-full animate-pulse transition-all">
+              <div className="w-2.5 h-2.5 bg-red-500 rounded-full shadow-[0_0_8px_rgba(239,68,68,0.8)]"></div>
+              <span className="text-xs text-red-400 font-bold tracking-wider">MALICIOUS ALERT</span>
+            </div>
           )}
         </div>
         <div className="flex gap-4">
@@ -196,35 +196,35 @@ function App() {
       {/* Navigation & Filters */}
       <div className="flex flex-col lg:flex-row justify-between items-center bg-slate-900 p-4 rounded-xl shadow-xl border border-slate-800 mb-6 gap-4">
         <div className="flex gap-2 w-full lg:w-auto overflow-x-auto">
-           {['All', 'Allowed', 'Denied', 'Malicious'].map(tab => (
-               <button 
-                  key={tab} 
-                  onClick={() => setActiveTab(tab)}
-                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === tab ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}`}>
-                  {tab}
-               </button>
-           ))}
+          {['All', 'Allowed', 'Denied', 'Malicious'].map(tab => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === tab ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}`}>
+              {tab}
+            </button>
+          ))}
         </div>
         <div className="flex items-center gap-4 w-full lg:w-auto shrink-0">
-           <span className="text-slate-400 text-sm font-medium">Timeline Timeline:</span>
-           <select 
-               className="bg-slate-950 border border-slate-700 rounded-lg py-2 px-3 text-sm text-white focus:outline-none focus:border-indigo-500 min-w-[140px]"
-               value={timeRange}
-               onChange={(e) => setTimeRange(e.target.value)}
-           >
-               <option value="">All Time</option>
-               <option value="5m">Last 5 Mins</option>
-               <option value="10m">Last 10 Mins</option>
-               <option value="15m">Last 15 Mins</option>
-               <option value="30m">Last 30 Mins</option>
-               <option value="1h">Last 1 Hour</option>
-               <option value="2h">Last 2 Hours</option>
-               <option value="4h">Last 4 Hours</option>
-               <option value="6h">Last 6 Hours</option>
-               <option value="12h">Last 12 Hours</option>
-               <option value="1d">Last 1 Day</option>
-               <option value="7d">Last 7 Days</option>
-           </select>
+          <span className="text-slate-400 text-sm font-medium">Timeline Timeline:</span>
+          <select
+            className="bg-slate-950 border border-slate-700 rounded-lg py-2 px-3 text-sm text-white focus:outline-none focus:border-indigo-500 min-w-[140px]"
+            value={timeRange}
+            onChange={(e) => setTimeRange(e.target.value)}
+          >
+            <option value="">All Time</option>
+            <option value="5m">Last 5 Mins</option>
+            <option value="10m">Last 10 Mins</option>
+            <option value="15m">Last 15 Mins</option>
+            <option value="30m">Last 30 Mins</option>
+            <option value="1h">Last 1 Hour</option>
+            <option value="2h">Last 2 Hours</option>
+            <option value="4h">Last 4 Hours</option>
+            <option value="6h">Last 6 Hours</option>
+            <option value="12h">Last 12 Hours</option>
+            <option value="1d">Last 1 Day</option>
+            <option value="7d">Last 7 Days</option>
+          </select>
         </div>
       </div>
 
@@ -233,26 +233,26 @@ function App() {
         {/* Time Series Area Chart */}
         <div className="lg:col-span-2 bg-slate-900 rounded-xl border border-slate-800 shadow-xl p-4 h-72">
           <h2 className="text-sm font-semibold flex items-center gap-2 text-slate-300 mb-4">
-            <Activity className="w-4 h-4"/> Traffic Flow ({activeTab === "All" ? "Events" : `${activeTab} Logs`}/sec)
+            <Activity className="w-4 h-4" /> Traffic Flow ({activeTab === "All" ? "Events" : `${activeTab} Logs`}/sec)
           </h2>
           <ResponsiveContainer width="100%" height="85%">
             <AreaChart data={timeSeries}>
               <defs>
                 <linearGradient id="colorCount" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#6366f1" stopOpacity={0.8}/>
-                  <stop offset="95%" stopColor="#6366f1" stopOpacity={0}/>
+                  <stop offset="5%" stopColor="#6366f1" stopOpacity={0.8} />
+                  <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
                 </linearGradient>
                 <linearGradient id="colorCrit" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#ef4444" stopOpacity={0.8}/>
-                  <stop offset="95%" stopColor="#ef4444" stopOpacity={0}/>
+                  <stop offset="5%" stopColor="#ef4444" stopOpacity={0.8} />
+                  <stop offset="95%" stopColor="#ef4444" stopOpacity={0} />
                 </linearGradient>
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="#334155" vertical={false} />
               <XAxis dataKey="time" stroke="#94a3b8" fontSize={12} tickMargin={10} minTickGap={20} />
               <YAxis stroke="#94a3b8" fontSize={12} />
-              <Tooltip 
-                contentStyle={{ backgroundColor: '#0f172a', borderColor: '#1e293b', borderRadius: '8px' }} 
-                itemStyle={{ color: '#e2e8f0' }} 
+              <Tooltip
+                contentStyle={{ backgroundColor: '#0f172a', borderColor: '#1e293b', borderRadius: '8px' }}
+                itemStyle={{ color: '#e2e8f0' }}
               />
               <Area type="monotone" dataKey="count" name={activeTab === "All" ? "Total Events" : `${activeTab} Events`} stroke="#6366f1" fillOpacity={1} fill="url(#colorCount)" />
               {activeTab === "All" && (
@@ -265,7 +265,7 @@ function App() {
         {/* Severity Distribution Pie Chart */}
         <div className="bg-slate-900 rounded-xl border border-slate-800 shadow-xl p-4 h-72">
           <h2 className="text-sm font-semibold flex items-center gap-2 text-slate-300 mb-4">
-            <ShieldAlert className="w-4 h-4"/> Severity Distribution
+            <ShieldAlert className="w-4 h-4" /> Severity Distribution
           </h2>
           <ResponsiveContainer width="100%" height="85%">
             <PieChart>
@@ -283,9 +283,9 @@ function App() {
                   <Cell key={`cell-${index}`} fill={entry.color} />
                 ))}
               </Pie>
-              <Tooltip 
-                contentStyle={{ backgroundColor: '#0f172a', borderColor: '#1e293b', borderRadius: '8px' }} 
-                itemStyle={{ color: '#e2e8f0' }} 
+              <Tooltip
+                contentStyle={{ backgroundColor: '#0f172a', borderColor: '#1e293b', borderRadius: '8px' }}
+                itemStyle={{ color: '#e2e8f0' }}
               />
               <Legend verticalAlign="bottom" height={36} iconType="circle" />
             </PieChart>
@@ -297,50 +297,49 @@ function App() {
         {/* Integrations Panel */}
         <div className="bg-slate-900 rounded-xl border border-slate-800 shadow-xl overflow-hidden flex flex-col h-[55vh] p-4 space-y-4">
           <h2 className="text-lg font-semibold flex items-center gap-2 text-slate-300 pb-2 border-b border-slate-800">
-            <Network className="w-5 h-5"/> Zero-Trust Topology
+            <Network className="w-5 h-5" /> Zero-Trust Topology
           </h2>
-          
+
           <div className="space-y-3 flex-1 overflow-y-auto pr-2">
             <div className="bg-slate-950 p-3 rounded-lg border border-indigo-900/50 flex flex-col gap-1">
               <div className="flex justify-between items-center">
-                 <span className="text-xs text-indigo-400 font-bold">L1: Infrastructure</span>
+                <span className="text-xs text-indigo-400 font-bold">L1: Infrastructure</span>
               </div>
-              <span className="text-sm text-slate-300 flex items-center gap-2"><Server className="w-3 h-3 text-green-400"/> Kubernetes / dZ GaaS</span>
+              <span className="text-sm text-slate-300 flex items-center gap-2"><Server className="w-3 h-3 text-green-400" /> Kubernetes / dZ GaaS</span>
             </div>
             <div className="bg-slate-950 p-3 rounded-lg border border-indigo-900/50 flex flex-col gap-1">
               <div className="flex justify-between items-center">
-                 <span className="text-xs text-indigo-400 font-bold">L2: Data Platform</span>
+                <span className="text-xs text-indigo-400 font-bold">L2: Data Platform</span>
               </div>
-              <span className="text-sm text-slate-300 flex items-center gap-2"><Database className="w-3 h-3 text-green-400"/> Apache NiFi / Atlas</span>
+              <span className="text-sm text-slate-300 flex items-center gap-2"><Database className="w-3 h-3 text-green-400" /> Apache NiFi / Atlas</span>
             </div>
             <div className="bg-slate-950 p-3 rounded-lg border border-indigo-900/50 flex flex-col gap-1">
               <div className="flex justify-between items-center">
-                 <span className="text-xs text-indigo-400 font-bold">L3: Knowledge Base</span>
-                 <a href="http://localhost:6333/dashboard" target="_blank" rel="noopener noreferrer" className="text-indigo-400 hover:text-indigo-300" title="Open Qdrant Visualizer"><ExternalLink className="w-3 h-3" /></a>
+                <span className="text-xs text-indigo-400 font-bold">L3: Knowledge Base</span>
+                <a href="http://localhost:6333/dashboard" target="_blank" rel="noopener noreferrer" className="text-indigo-400 hover:text-indigo-300" title="Open Qdrant Visualizer"><ExternalLink className="w-3 h-3" /></a>
               </div>
-              <span className="text-sm text-slate-300 flex items-center gap-2"><Database className="w-3 h-3 text-green-400"/> Qdrant / Neo4j Vectors</span>
+              <span className="text-sm text-slate-300 flex items-center gap-2"><Database className="w-3 h-3 text-green-400" /> Qdrant </span>
             </div>
             <div className="bg-slate-950 p-3 rounded-lg border border-indigo-900/50 flex flex-col gap-1">
               <div className="flex justify-between items-center">
-                 <span className="text-xs text-indigo-400 font-bold">L4/L5: AI Matrix</span>
-                 <a href="http://localhost:8000/docs" target="_blank" rel="noopener noreferrer" className="text-indigo-400 hover:text-indigo-300" title="Open AI LLMA/Mistral API"><ExternalLink className="w-3 h-3" /></a>
+                <span className="text-xs text-indigo-400 font-bold">L4/L5: AI Matrix</span>
+                <a href="http://localhost:8000/docs" target="_blank" rel="noopener noreferrer" className="text-indigo-400 hover:text-indigo-300" title="Open AI LLMA/Mistral API"><ExternalLink className="w-3 h-3" /></a>
               </div>
-              <span className="text-sm text-slate-300 flex items-center gap-2"><Brain className="w-3 h-3 text-green-400"/> LlamaIndex / LLMA Tools</span>
-              <span className="text-sm text-slate-300 flex items-center gap-2"><Brain className="w-3 h-3 text-green-400"/> LangGraph AI</span>
+              <span className="text-sm text-slate-300 flex items-center gap-2"><Brain className="w-3 h-3 text-green-400" /> LLMA Tools</span>
             </div>
             <div className="bg-slate-950 p-3 rounded-lg border border-indigo-900/50 flex flex-col gap-1">
               <div className="flex justify-between items-center">
-                 <span className="text-xs text-indigo-400 font-bold">L6: Orchestration</span>
-                 <a href="http://localhost:5678" target="_blank" rel="noopener noreferrer" className="text-indigo-400 hover:text-indigo-300" title="Open n8n Interface"><ExternalLink className="w-3 h-3" /></a>
+                <span className="text-xs text-indigo-400 font-bold">L6: Orchestration</span>
+                <a href="http://localhost:5678" target="_blank" rel="noopener noreferrer" className="text-indigo-400 hover:text-indigo-300" title="Open n8n Interface"><ExternalLink className="w-3 h-3" /></a>
               </div>
-              <span className="text-sm text-slate-300 flex items-center gap-2"><Activity className="w-3 h-3 text-green-400"/> n8n Automation</span>
+              <span className="text-sm text-slate-300 flex items-center gap-2"><Activity className="w-3 h-3 text-green-400" /> n8n Automation</span>
             </div>
             <div className="bg-slate-950 p-3 rounded-lg border border-indigo-900/50 flex flex-col gap-1">
               <div className="flex justify-between items-center">
-                 <span className="text-xs text-indigo-400 font-bold">L7: Agent Web</span>
-                 <a href="/" target="_blank" rel="noopener noreferrer" className="text-indigo-400 hover:text-indigo-300" title="Open Dashboard"><ExternalLink className="w-3 h-3" /></a>
+                <span className="text-xs text-indigo-400 font-bold">L7: Agent Web</span>
+                <a href="/" target="_blank" rel="noopener noreferrer" className="text-indigo-400 hover:text-indigo-300" title="Open Dashboard"><ExternalLink className="w-3 h-3" /></a>
               </div>
-              <span className="text-sm text-slate-300 flex items-center gap-2"><Shield className="w-3 h-3 text-green-400"/> Web Dashboard</span>
+              <span className="text-sm text-slate-300 flex items-center gap-2"><Shield className="w-3 h-3 text-green-400" /> Web Dashboard</span>
             </div>
           </div>
         </div>
@@ -348,7 +347,7 @@ function App() {
         {/* Log Viewer Widget */}
         <div className="lg:col-span-2 bg-slate-900 rounded-xl border border-slate-800 shadow-xl overflow-hidden flex flex-col h-[55vh]">
           <div className="p-4 border-b border-slate-800 bg-slate-900/50 flex justify-between items-center">
-            <h2 className="text-lg font-semibold flex items-center gap-2"><Activity className="w-5 h-5"/> Live Network Logs</h2>
+            <h2 className="text-lg font-semibold flex items-center gap-2"><Activity className="w-5 h-5" /> Live Network Logs</h2>
             <span className="text-xs text-slate-400">Updates every 2s</span>
           </div>
           <div className="overflow-y-auto flex-1 p-0">
@@ -370,27 +369,25 @@ function App() {
                   const time = parts.length > 0 ? parts[0] : "N/A";
                   const src = parts.length > 3 ? `${parts[1]}:${parts[3]}` : "N/A";
                   const dst = parts.length > 4 ? `${parts[2]}:${parts[4]}` : "N/A";
-                  
+
                   return (
                     <tr key={log.id} className="hover:bg-slate-800/30 transition-colors">
                       <td className="px-4 py-2 text-slate-400 font-mono text-xs">{new Date(time).toLocaleTimeString()}</td>
                       <td className="px-4 py-2 font-mono text-slate-300">{src}</td>
                       <td className="px-4 py-2 font-mono text-slate-300">{dst}</td>
                       <td className="px-4 py-2">
-                        <span className={`px-2 py-1 rounded text-xs font-medium ${
-                          log.status === 'Allowed' ? 'bg-green-500/10 text-green-400' :
+                        <span className={`px-2 py-1 rounded text-xs font-medium ${log.status === 'Allowed' ? 'bg-green-500/10 text-green-400' :
                           log.status === 'Denied' ? 'bg-orange-500/10 text-orange-400' :
-                          'bg-red-500/10 text-red-400'
-                        }`}>
+                            'bg-red-500/10 text-red-400'
+                          }`}>
                           {log.status}
                         </span>
                       </td>
                       <td className="px-4 py-2">
-                         <span className={`px-2 py-1 rounded text-xs font-medium ${
-                          log.severity === 'Critical' ? 'text-red-500 font-bold' :
+                        <span className={`px-2 py-1 rounded text-xs font-medium ${log.severity === 'Critical' ? 'text-red-500 font-bold' :
                           log.severity === 'High' ? 'text-orange-500' :
-                          'text-slate-400'
-                        }`}>
+                            'text-slate-400'
+                          }`}>
                           {log.severity}
                         </span>
                       </td>
@@ -407,21 +404,21 @@ function App() {
           </div>
           {/* Pagination Controls */}
           <div className="flex justify-between items-center p-3 border-t border-slate-800 bg-slate-900/50">
-             <button 
-               disabled={page === 1}
-               onClick={() => setPage(p => Math.max(1, p - 1))}
-               className="px-3 py-1 bg-slate-800 text-slate-300 rounded hover:bg-indigo-600 hover:text-white transition-colors disabled:opacity-50"
-             >
-               Previous 500
-             </button>
-             <span className="text-slate-400 text-sm">Page {page}</span>
-             <button 
-               disabled={logs.length < 500}
-               onClick={() => setPage(p => p + 1)}
-               className="px-3 py-1 bg-slate-800 text-slate-300 rounded hover:bg-indigo-600 hover:text-white transition-colors disabled:opacity-50"
-             >
-               Next 500
-             </button>
+            <button
+              disabled={page === 1}
+              onClick={() => setPage(p => Math.max(1, p - 1))}
+              className="px-3 py-1 bg-slate-800 text-slate-300 rounded hover:bg-indigo-600 hover:text-white transition-colors disabled:opacity-50"
+            >
+              Previous 500
+            </button>
+            <span className="text-slate-400 text-sm">Page {page}</span>
+            <button
+              disabled={logs.length < 500}
+              onClick={() => setPage(p => p + 1)}
+              className="px-3 py-1 bg-slate-800 text-slate-300 rounded hover:bg-indigo-600 hover:text-white transition-colors disabled:opacity-50"
+            >
+              Next 500
+            </button>
           </div>
         </div>
 
@@ -429,43 +426,42 @@ function App() {
         <div className={`bg-slate-900 rounded-xl border border-slate-800 shadow-xl overflow-hidden flex flex-col ${isChatMaximized ? 'fixed inset-4 z-50 lg:inset-x-20 lg:inset-y-10' : 'h-[55vh]'}`}>
           <div className="p-4 border-b border-slate-800 bg-indigo-950/30 flex justify-between items-center">
             <h2 className="text-lg font-semibold flex items-center gap-2 text-indigo-300">
-              <MessageCircle className="w-5 h-5"/> Chat4ED Console
+              <MessageCircle className="w-5 h-5" /> BrahMos Chat Bot
             </h2>
             <div className="flex items-center gap-2">
-              <button 
+              <button
                 onClick={handleClearChat}
                 className="p-1 hover:bg-slate-800 rounded-md text-red-400 hover:text-red-300 transition-colors"
                 title="Clear Chat History"
               >
-                <Trash2 className="w-4 h-4"/>
+                <Trash2 className="w-4 h-4" />
               </button>
-              <button 
+              <button
                 onClick={() => setIsChatMaximized(!isChatMaximized)}
                 className="p-1 hover:bg-slate-800 rounded-md text-slate-400 transition-colors"
                 title={isChatMaximized ? "Minimize Console" : "Maximize Console for Reports"}
               >
-                {isChatMaximized ? <Minimize2 className="w-5 h-5"/> : <Maximize2 className="w-5 h-5"/>}
+                {isChatMaximized ? <Minimize2 className="w-5 h-5" /> : <Maximize2 className="w-5 h-5" />}
               </button>
             </div>
           </div>
-          
+
           <div className={`flex-1 overflow-y-auto p-4 space-y-4 ${isChatMaximized ? 'bg-slate-950' : ''}`}>
             <div className="bg-slate-800/50 rounded-lg p-3 text-sm text-slate-300 inline-block">
-              Welcome to the Chat4ED Analyst Console (Layer 7). My logic is governed by CrewAI orchestration and Mistral NLP models. How can I assist with your attack graph investigations today? You can ask me for reports on any timeframe!
+              Welcome to the BrahMos Analyst Console. My logic is governed by CrewAI orchestration and Mistral NLP models. How can I assist with your attack graph investigations today? You can ask me for reports on any timeframe!
             </div>
-            
+
             {chatHistory.map((msg, i) => (
               <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                <div className={`rounded-lg p-4 text-sm whitespace-pre-wrap flex-col ${
-                  msg.role === 'user' 
-                    ? 'bg-blue-600/20 text-blue-200 border border-blue-500/20 max-w-[85%]' 
-                    : 'bg-slate-800/50 text-slate-300 border border-slate-700/50 w-full lg:max-w-[95%]'
-                }`}>
+                <div className={`rounded-lg p-4 text-sm whitespace-pre-wrap flex-col ${msg.role === 'user'
+                  ? 'bg-blue-600/20 text-blue-200 border border-blue-500/20 max-w-[85%]'
+                  : 'bg-slate-800/50 text-slate-300 border border-slate-700/50 w-full lg:max-w-[95%]'
+                  }`}>
                   {msg.content}
                   {msg.pdf_url && (
                     <div className="mt-3">
                       <a href={msg.pdf_url.startsWith('http') ? msg.pdf_url : API_BASE.replace('/api', '') + msg.pdf_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 rounded-lg text-white font-semibold hover:bg-indigo-500 transition-colors shadow-lg shadow-indigo-900/20 w-fit">
-                        <Download className="w-4 h-4"/> Download PDF Report
+                        <Download className="w-4 h-4" /> Download PDF Report
                       </a>
                     </div>
                   )}
@@ -487,18 +483,18 @@ function App() {
                 className="w-full bg-slate-950 border border-slate-700 rounded-lg py-3 pl-4 pr-12 text-sm text-white focus:outline-none focus:border-indigo-500 transition-colors"
                 disabled={isChatting}
               />
-              <button 
-                type="submit" 
+              <button
+                type="submit"
                 disabled={isChatting}
                 className="absolute right-2 top-1/2 -translate-y-1/2 p-2 bg-indigo-600 hover:bg-indigo-500 rounded-md text-white transition-colors disabled:opacity-50"
               >
-                <Search className="w-4 h-4"/>
+                <Search className="w-4 h-4" />
               </button>
             </div>
           </form>
         </div>
       </div>
-{isChatMaximized && (
+      {isChatMaximized && (
         <div className="fixed inset-0 bg-black/60 z-40 backdrop-blur-sm" onClick={() => setIsChatMaximized(false)}></div>
       )}
     </div>
