@@ -455,7 +455,7 @@ def chat_with_agent(query: str, source: str = "live"):
                     c_title = "Top Source IPs by Hit"
                     
                 if s_ips:
-                    b_labels = [x[0][-12:] for x in s_ips]
+                    b_labels = [x[0] for x in s_ips]
                     b_counts = [x[1] for x in s_ips]
                 else:
                     b_labels = ['No Data']
@@ -728,7 +728,6 @@ https://www.virustotal.com/gui/
         elif "allowed" in query_lower or "allow" in query_lower:
             query_obj = query_obj.filter(ModelClass.status == 'Allowed')
             
-        import re
         ip_matches = re.findall(r'\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b', query)
         for ip in ip_matches:
             query_obj = query_obj.filter(ModelClass.raw_log.like(f"%{ip}%"))
