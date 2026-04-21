@@ -51,6 +51,23 @@ services:
     ports:
       - "5173:80"
 
+  nifi:
+    image: apache/nifi:latest
+    ports:
+      - "8443:8443"
+    environment:
+      - NIFI_WEB_HTTP_PORT=8080
+      - SINGLE_USER_CREDENTIALS_USERNAME=admin
+      - SINGLE_USER_CREDENTIALS_PASSWORD=Cisco@123456789
+
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+
 volumes:
   qdrant_storage:
   n8n_data:
+  ollama_data:

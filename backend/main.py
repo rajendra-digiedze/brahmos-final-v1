@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends, BackgroundTasks
+from fastapi import FastAPI, Depends, BackgroundTasks, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -7,9 +7,12 @@ import datetime
 import os
 import smtplib
 from email.message import EmailMessage
-from database import get_db, LogEntry
+from database import get_db, LogEntry, OfflineLogEntry
 from agent import summarize_and_store_log, chat_with_agent
 from fastapi.staticfiles import StaticFiles
+import pandas as pd
+import io
+import math
 
 # Create static directory for reports
 static_dir = os.path.join(os.path.dirname(__file__), 'static')
@@ -34,6 +37,7 @@ class LogPayload(BaseModel):
 
 class ChatQuery(BaseModel):
     query: str
+    source: Optional[str] = "live"
 
 def send_real_email(log_line: str, recipient: str):
     msg = EmailMessage()
@@ -86,21 +90,81 @@ def ingest_log(payload: LogPayload, background_tasks: BackgroundTasks, db: Sessi
     
     return {"status": "success", "id": db_log.id}
 
+@app.post("/api/logs/upload_offline")
+async def upload_offline_logs(file: UploadFile = File(...), db: Session = Depends(get_db)):
+    content = await file.read()
+    try:
+        df = pd.read_excel(io.BytesIO(content))
+        # Clear existing offline logs
+        db.query(OfflineLogEntry).delete()
+        
+        records = df.to_dict('records')
+        for r in records:
+            def get_val(key, default=""):
+                val = r.get(key)
+                if isinstance(val, float) and math.isnan(val):
+                    return default
+                return str(val) if val is not None else default
+
+            time_val = get_val('Time')
+            if hasattr(time_val, "strftime"):
+                time_val = time_val.strftime("%Y-%m-%dT%H:%M:%SZ")
+            else:
+                time_val = str(time_val).replace(" ", "T")
+                if not time_val.endswith("Z"):
+                    time_val += "Z"
+
+            src_ip = get_val('Src IP', '0.0.0.0')
+            dst_ip = get_val('Dst IP', '0.0.0.0')
+            src_port = get_val('Src port', '0').split('.')[0]
+            dst_port = get_val('Dst port', '0').split('.')[0]
+            status = get_val('Log subtype', 'Allowed')
+            
+            rule_name = get_val('Firewall rule name')
+            
+            severity = "Low"
+            if status == "Denied":
+                if "Geo" in rule_name or "IPS" in rule_name or "Malware" in rule_name:
+                    severity = "Critical"
+                else:
+                    severity = "High"
+            
+            raw_log = f"{time_val} | {src_ip} | {dst_ip} | {src_port} | {dst_port} | {status} | {severity}"
+            
+            entry = OfflineLogEntry(
+                raw_log=raw_log,
+                timeline=time_val,
+                status=status,
+                severity=severity
+            )
+            db.add(entry)
+            
+        db.commit()
+        return {"status": "success", "message": f"Uploaded {len(records)} offline logs."}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
 @app.get("/api/logs")
-def get_logs(page: int = 1, limit: int = 500, time_range: Optional[str] = None, status_filter: Optional[str] = "All", db: Session = Depends(get_db)):
-    # Fetch recent logs for the UI dynamically based on filters
-    query = db.query(LogEntry)
+def get_logs(page: int = 1, limit: int = 500, time_range: Optional[str] = None, status_filter: Optional[str] = "All", source: str = "live", db: Session = Depends(get_db)):
+    model = OfflineLogEntry if source == "offline" else LogEntry
+    query = db.query(model)
     
     if status_filter and status_filter != "All":
-        # Handle "Malicious" pseudo-status
         if status_filter == "Malicious":
-            query = query.filter(LogEntry.severity == "Critical")
+            query = query.filter(model.severity == "Critical")
         else:
-            query = query.filter(LogEntry.status == status_filter)
+            query = query.filter(model.status == status_filter)
             
+    from sqlalchemy import func
     if time_range:
-        # Use local time since Windows firewall uses local time
         now = datetime.datetime.now()
+        if source == "offline":
+            max_time_str = db.query(func.max(model.timeline)).scalar()
+            if max_time_str:
+                try:
+                    now = datetime.datetime.strptime(max_time_str, "%Y-%m-%dT%H:%M:%SZ")
+                except:
+                    pass
         delta = None
         if time_range.endswith('m'):
             delta = datetime.timedelta(minutes=int(time_range[:-1]))
@@ -112,33 +176,45 @@ def get_logs(page: int = 1, limit: int = 500, time_range: Optional[str] = None, 
         if delta:
             cutoff = now - delta
             cutoff_str = cutoff.strftime("%Y-%m-%dT%H:%M:%SZ")
-            # We must also enforce SQLite sorting bounds
-            query = query.filter(LogEntry.timeline >= cutoff_str)
+            query = query.filter(model.timeline >= cutoff_str)
             
-    logs = query.order_by(LogEntry.id.desc()).offset((page - 1) * limit).limit(limit).all()
+    logs = query.order_by(model.id.desc()).offset((page - 1) * limit).limit(limit).all()
     return logs
 
 @app.get("/api/logs/stats")
-def get_stats(db: Session = Depends(get_db)):
-    total = db.query(LogEntry).count()
-    critical = db.query(LogEntry).filter(LogEntry.severity == "Critical").count()
-    denied = db.query(LogEntry).filter(LogEntry.status == "Denied").count()
+def get_stats(source: str = "live", db: Session = Depends(get_db)):
+    model = OfflineLogEntry if source == "offline" else LogEntry
+    total = db.query(model).count()
+    critical = db.query(model).filter(model.severity == "Critical").count()
+    denied = db.query(model).filter(model.status == "Denied").count()
+    allowed = db.query(model).filter(model.status == "Allowed").count()
     return {
         "total": total,
         "critical": critical,
-        "denied": denied
+        "denied": denied,
+        "allowed": allowed
     }
 
 @app.get("/api/logs/chart")
-def get_chart_data(time_range: Optional[str] = None, status_filter: Optional[str] = "All", db: Session = Depends(get_db)):
-    query = db.query(LogEntry.timeline, LogEntry.severity, LogEntry.status)
+def get_chart_data(time_range: Optional[str] = None, status_filter: Optional[str] = "All", source: str = "live", db: Session = Depends(get_db)):
+    model = OfflineLogEntry if source == "offline" else LogEntry
+    query = db.query(model.timeline, model.severity, model.status)
     if status_filter and status_filter != "All":
         if status_filter == "Malicious":
-            query = query.filter(LogEntry.severity == "Critical")
+            query = query.filter(model.severity == "Critical")
         else:
-            query = query.filter(LogEntry.status == status_filter)
+            query = query.filter(model.status == status_filter)
             
+    from sqlalchemy import func
     now = datetime.datetime.now()
+    if source == "offline":
+        max_time_str = db.query(func.max(model.timeline)).scalar()
+        if max_time_str:
+            try:
+                now = datetime.datetime.strptime(max_time_str, "%Y-%m-%dT%H:%M:%SZ")
+            except:
+                pass
+                
     delta = None
     if time_range:
         if time_range.endswith('m'):
@@ -151,7 +227,7 @@ def get_chart_data(time_range: Optional[str] = None, status_filter: Optional[str
         if delta:
             cutoff = now - delta
             cutoff_str = cutoff.strftime("%Y-%m-%dT%H:%M:%SZ")
-            query = query.filter(LogEntry.timeline >= cutoff_str)
+            query = query.filter(model.timeline >= cutoff_str)
             
     logs = query.all()
     
@@ -159,12 +235,17 @@ def get_chart_data(time_range: Optional[str] = None, status_filter: Optional[str
     for log in logs:
         m_key = log.timeline[:16] + ":00Z"
         if m_key not in time_map:
-            time_map[m_key] = {"time": m_key, "count": 0, "Critical": 0, "High": 0}
+            time_map[m_key] = {"time": m_key, "count": 0, "Critical": 0, "High": 0, "Allowed": 0, "Denied": 0}
         time_map[m_key]["count"] += 1
         if log.severity == "Critical":
             time_map[m_key]["Critical"] += 1
         elif log.severity == "High":
              time_map[m_key]["High"] += 1
+             
+        if log.status == "Allowed":
+             time_map[m_key]["Allowed"] += 1
+        elif log.status == "Denied":
+             time_map[m_key]["Denied"] += 1
              
     return_data = []
     if delta:
@@ -176,10 +257,9 @@ def get_chart_data(time_range: Optional[str] = None, status_filter: Optional[str
             if m_key in time_map:
                 return_data.append(time_map[m_key])
             else:
-                return_data.append({"time": m_key, "count": 0, "Critical": 0, "High": 0})
+                return_data.append({"time": m_key, "count": 0, "Critical": 0, "High": 0, "Allowed": 0, "Denied": 0})
             current += datetime.timedelta(minutes=1)
     else:
-        # Default behavior if no delta
         sorted_keys = sorted(time_map.keys())
         return_data = [time_map[k] for k in sorted_keys]
         
@@ -187,7 +267,7 @@ def get_chart_data(time_range: Optional[str] = None, status_filter: Optional[str
 
 @app.post("/api/chat")
 def chat(payload: ChatQuery):
-    response = chat_with_agent(payload.query)
+    response = chat_with_agent(payload.query, source=payload.source)
     if isinstance(response, dict):
         return response
     return {"response": response}

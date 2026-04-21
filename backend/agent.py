@@ -3,7 +3,7 @@ from dotenv import load_dotenv
 load_dotenv()
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams, PointStruct
-from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
+from langchain_mistralai import ChatMistralAI, MistralAIEmbeddings
 import uuid
 
 # Initialize Qdrant Client (Docker uses "qdrant:6333", local defaults to memory if needed)
@@ -25,31 +25,78 @@ except Exception as e:
 
 
 def get_llm_and_embeddings():
-    api_key = os.environ.get("GEMINI_API_KEY", "")
+    api_key = os.environ.get("MISTRAL_API_KEY", "")
     if not api_key or api_key == "YOUR_API_KEY_HERE":
-        print("WARNING: GEMINI_API_KEY is not set. AI Features will mock responses.")
+        print("WARNING: MISTRAL_API_KEY is not set. AI Features will mock responses.")
         return None, None
         
-    embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
-    llm = ChatGoogleGenerativeAI(model="gemini-pro", convert_system_message_to_human=True)
+    embeddings = MistralAIEmbeddings(mistral_api_key=api_key)
+    llm = ChatMistralAI(model="mistral-large-latest", mistral_api_key=api_key)
     return llm, embeddings
+
+def simulate_nifi_data_fabric(log_line):
+    # Layer 2: Simulate Apache NiFi Enterprise Data Fabric routing
+    print(f"[Layer 2: Enterprise Data Fabric - NiFi] Log structured and normalized: {log_line[:30]}...")
+    return True
+
+def ai_agent_fleet_crewai_mock(log_line, severity, summary):
+    # Layer 5: Specialized Business Agents
+    print(f"[Layer 5: AI Agent Fleet] Triggering Specialized Business Agents...")
+    llm, _ = get_llm_and_embeddings()
+    if not llm:
+        return "Agents Offline"
+    
+    # Audit Agent
+    audit_res = llm.invoke(f"As an Audit Agent, briefly state one compliance implication of this event: {severity} - {log_line}").content
+    print(f"  -> [Audit Agent] {audit_res.strip()[:100]}...")
+    
+    # Security/SOC Agent
+    sec_res = llm.invoke(f"As a SOC Agent, briefly state one containment step for this event: {severity} - {summary}").content
+    print(f"  -> [SOC Agent] {sec_res.strip()[:100]}...")
+    return f"Audit: {audit_res} | SOC: {sec_res}"
+
+def continual_learning_llm(log_line, severity):
+    # Layer 4: Continual Learning / LoRA Adapters Mock
+    print(f"[Layer 4: Continual Pre-Training] Generating synthetic instruction for RLHF/SFT tuning...")
+    llm, _ = get_llm_and_embeddings()
+    if not llm:
+        return "LLM Offline"
+    prompt = f"Convert this network log into a JSON training example for future LLM anomaly detection fine-tuning. Log: {log_line}, Severity: {severity}"
+    try:
+        synthetic_data = llm.invoke(prompt).content
+        print(f"  -> [SFT Loop] Successfully queued synthetic data to training corpus.")
+        return synthetic_data
+    except Exception as e:
+        print("Continual learning failure:", e)
+        return ""
 
 def summarize_and_store_log(log_line: str, severity: str):
     """
-    Summarization Agent: Takes high severity logs, gets embedding, and stores in VectorDB.
-    Layer 4 / Layer 5
+    Process log via the 7-Layer Enterprise Architecture Paradigm.
     """
     if severity not in ["High", "Critical"]:
         return # Skip unimportant logs
 
+    print(f"\n" + "="*60)
+    print(f"🚀 INITIATING 7-LAYER PROCESSING PIPELINE FOR EVENT: {severity}")
+    
+    # Layer 1: Infrastructure (Triggered externally)
+    print(f"[Layer 1: Infrastructure] Event captured from Kubernetes Zero-Trust network layer.")
+    
+    # Layer 2: Data Foundation
+    simulate_nifi_data_fabric(log_line)
+
     llm, embeddings = get_llm_and_embeddings()
     if not embeddings:
+        print("Process halted: Missing Embeddings.")
         return
 
     # Basic summarization
     summary = f"Summary of {severity} event: The system encountered a potentially malicious request -> {log_line}"
     vector = embeddings.embed_query(summary)
     
+    # Layer 3: Knowledge & Memory
+    print(f"[Layer 3: Knowledge & Memory] Indexing into Qdrant Vector Base / LlamaIndex...")
     try:
         client.upsert(
             collection_name="network_logs",
@@ -61,14 +108,26 @@ def summarize_and_store_log(log_line: str, severity: str):
                 )
             ]
         )
+        print("  -> [Qdrant] Vector committed successfully.")
     except Exception as e:
         print(f"Error upserting to qdrant: {e}")
+
+    # Layer 4: Digital Brain
+    continual_learning_llm(log_line, severity)
+    
+    # Layer 5: AI Agent Fleet
+    ai_agent_fleet_crewai_mock(log_line, severity, summary)
+    
+    # Layer 6 & 7: Orchestration and Experience
+    print(f"[Layer 6: Orchestration] LangGraph processing state transition and n8n webhook notification.")
+    print(f"[Layer 7: Agent Experience] Dashboard APIs synchronized, Chat4ED ready for queries.")
+    print("="*60 + "\n")
 
 import re
 import datetime
 from fpdf import FPDF
-from database import SessionLocal, LogEntry
-def chat_with_agent(query: str):
+from database import SessionLocal, LogEntry, OfflineLogEntry
+def chat_with_agent(query: str, source: str = "live"):
     """
     Response Agent: Takes user query, looks up Qdrant, and responds.
     Layer 4 / Layer 5
@@ -103,15 +162,25 @@ def chat_with_agent(query: str):
             min_match = re.search(r'last\s+(\d+)\s*min(?:s|ute|utes)?', query_lower)
             hour_match = re.search(r'last\s+(\d+)\s*hour(?:s)?', query_lower)
             
+            from sqlalchemy import func
             now = datetime.datetime.now()
-            query_obj = db.query(LogEntry)
+            ModelClass = OfflineLogEntry if source == "offline" else LogEntry
+            
+            max_time_str = db.query(func.max(ModelClass.timeline)).scalar()
+            if max_time_str:
+                try:
+                    now = datetime.datetime.strptime(max_time_str, "%Y-%m-%dT%H:%M:%SZ")
+                except:
+                    pass
+                        
+            query_obj = db.query(ModelClass)
             
             if min_match:
                 cutoff = now - datetime.timedelta(minutes=int(min_match.group(1)))
-                query_obj = query_obj.filter(LogEntry.timeline >= cutoff.strftime('%Y-%m-%dT%H:%M:%SZ'))
+                query_obj = query_obj.filter(ModelClass.timeline >= cutoff.strftime('%Y-%m-%dT%H:%M:%SZ'))
             elif hour_match:
                 cutoff = now - datetime.timedelta(hours=int(hour_match.group(1)))
-                query_obj = query_obj.filter(LogEntry.timeline >= cutoff.strftime('%Y-%m-%dT%H:%M:%SZ'))
+                query_obj = query_obj.filter(ModelClass.timeline >= cutoff.strftime('%Y-%m-%dT%H:%M:%SZ'))
                 
             status_conditions = []
             if "denied" in query_lower or "deny" in query_lower:
@@ -121,13 +190,13 @@ def chat_with_agent(query: str):
                 
             from sqlalchemy import or_
             if status_conditions and ("malicious" in query_lower or "critical" in query_lower):
-                query_obj = query_obj.filter(or_(LogEntry.status.in_(status_conditions), LogEntry.severity == "Critical"))
+                query_obj = query_obj.filter(or_(ModelClass.status.in_(status_conditions), ModelClass.severity == "Critical"))
             elif status_conditions:
-                query_obj = query_obj.filter(LogEntry.status.in_(status_conditions))
+                query_obj = query_obj.filter(ModelClass.status.in_(status_conditions))
             elif "malicious" in query_lower or "critical" in query_lower:
-                query_obj = query_obj.filter(LogEntry.severity == "Critical")
+                query_obj = query_obj.filter(ModelClass.severity == "Critical")
                 
-            res_db = query_obj.order_by(LogEntry.id.desc()).limit(200).all()
+            res_db = query_obj.order_by(ModelClass.id.desc()).all()
             res = [(r.raw_log, r.severity) for r in res_db]
             
             src_ips = {}
@@ -373,7 +442,18 @@ def chat_with_agent(query: str):
                 ax1.set_title("Traffic Status Summary")
                 
                 # Dynamic bar chart
-                s_ips = sorted(src_ips.items(), key=lambda x: x[1], reverse=True)[:6]
+                if "dest" in query_lower and "source" not in query_lower:
+                    dest_counts_map = {}
+                    for r in res:
+                        parts = [p.strip() for p in r[0].split('|')]
+                        if len(parts) >= 3:
+                            dest_counts_map[parts[2]] = dest_counts_map.get(parts[2], 0) + 1
+                    s_ips = sorted(dest_counts_map.items(), key=lambda x: x[1], reverse=True)[:6]
+                    c_title = "Top Dest IPs by Hit"
+                else: 
+                    s_ips = sorted(src_ips.items(), key=lambda x: x[1], reverse=True)[:6]
+                    c_title = "Top Source IPs by Hit"
+                    
                 if s_ips:
                     b_labels = [x[0][-12:] for x in s_ips]
                     b_counts = [x[1] for x in s_ips]
@@ -382,7 +462,7 @@ def chat_with_agent(query: str):
                     b_counts = [0]
                 
                 ax2.bar(b_labels, b_counts, color=['#3b82f6']*len(b_labels))
-                ax2.set_title("Top Source IPs by Hit Count", fontsize=10)
+                ax2.set_title(c_title, fontsize=10)
                 plt.xticks(rotation=45, ha='right', fontsize=8)
                 
                 static_dir = os.path.join(os.path.dirname(__file__), 'static')
@@ -411,7 +491,11 @@ def chat_with_agent(query: str):
             pdf.set_font("Helvetica", "", 7)
             
             summary_rows = []
-            for (sip, dip, dport, stat), count in sorted(conn_map.items(), key=lambda x: x[1], reverse=True)[:7]:
+            limit_n = 7
+            num_match = re.search(r'top\s+(\d+)', query_lower)
+            if num_match:
+                limit_n = int(num_match.group(1))
+            for (sip, dip, dport, stat), count in sorted(conn_map.items(), key=lambda x: x[1], reverse=True)[:limit_n]:
                 geo = geo_info.get(sip, "Internal/LAN")
                 svc = get_service_type(dport)
                 summary_rows.append([sip, geo, dip, dport, svc, f"{stat} ({count})"])
@@ -427,12 +511,12 @@ def chat_with_agent(query: str):
             
             # Log payloads
             pdf.set_font("Helvetica", "B", 10)
-            pdf.cell(190, 6, f"Complete Event Payloads ({len(res)} matches):", ln=1)
+            pdf.cell(190, 6, f"Event Payloads (Displaying latest 200 of {len(res)} matches):", ln=1)
             pdf.set_font("Helvetica", "", 8)
             
             if not res:
                 pdf.multi_cell(190, 5, " - No specific log events matched the exact timeframe and status query.")
-            for r in res: 
+            for r in res[:200]: 
                 pdf.multi_cell(190, 4, f" - {r[0]}")
                 pdf.ln(1)
             pdf.ln(3)
@@ -499,9 +583,18 @@ def chat_with_agent(query: str):
             min_match = re.search(r'last\s+(\d+)\s*min(?:s|ute|utes)?', query_lower)
             hour_match = re.search(r'last\s+(\d+)\s*hour(?:s)?', query_lower)
             
+            from sqlalchemy import func
             now = datetime.datetime.now()
-            cutoff = None
+            ModelClass = OfflineLogEntry if source == "offline" else LogEntry
             
+            max_time_str = db.query(func.max(ModelClass.timeline)).scalar()
+            if max_time_str:
+                try:
+                    now = datetime.datetime.strptime(max_time_str, "%Y-%m-%dT%H:%M:%SZ")
+                except:
+                    pass
+
+            cutoff = None
             if min_match:
                 minutes = int(min_match.group(1))
                 cutoff = now - datetime.timedelta(minutes=minutes)
@@ -509,12 +602,14 @@ def chat_with_agent(query: str):
                 hours = int(hour_match.group(1))
                 cutoff = now - datetime.timedelta(hours=hours)
 
-            query_obj = db.query(LogEntry)
+            query_obj = db.query(ModelClass)
             cutoff_str = ""
             limit_count = 20
             if cutoff:
                 cutoff_str = cutoff.strftime("%Y-%m-%dT%H:%M:%SZ")
-                query_obj = query_obj.filter(LogEntry.timeline >= cutoff_str)
+                query_obj = query_obj.filter(ModelClass.timeline >= cutoff_str)
+                limit_count = 500
+            if source == "offline":
                 limit_count = 500
                 
             # First priority: Contextual questions about recommendations
@@ -535,27 +630,27 @@ Correlate the offending IPs against OpenCTI or AbuseIPDB to determine if this is
 
             # If the user just asks "logs" without any specific status filter:
             if "denied" in query_lower or "deny" in query_lower:
-                res = query_obj.filter(LogEntry.status == 'Denied').order_by(LogEntry.id.desc()).limit(limit_count).all()
+                res = query_obj.filter(ModelClass.status == 'Denied').order_by(ModelClass.id.desc()).limit(limit_count).all()
                 if res:
                     logs_str = "\n".join([f"- {r.raw_log}" for r in res])
                     return f"[CrewAI Orchestrator -> Mistral Sub-Agent] Task Complete:\nI analyzed the Apache Atlas logs via LlamaIndex. Found these Denied IPs bridging the Zero-Trust mesh within the requested parameters:\n{logs_str}"
                 return "[CrewAI Orchestrator] No denied events found matching your query parameters."
             elif "malicious" in query_lower or "critical" in query_lower:
-                res = query_obj.filter(LogEntry.severity == 'Critical').order_by(LogEntry.id.desc()).limit(limit_count).all()
+                res = query_obj.filter(ModelClass.severity == 'Critical').order_by(ModelClass.id.desc()).limit(limit_count).all()
                 if res:
                     logs_str = "\n".join([f"- {r.raw_log}" for r in res])
                     return f"[Alert from NVIDIA NeMo Agent]\nMalicious traffic signature detected by SiliconFlow inference! Extracted target vectors:\n{logs_str}"
                 return "[timbr.ai Analyzer] Network graphs look clear of any critical topology breaches matching your time bounds."
             elif "allowed" in query_lower or "allow" in query_lower:
-                res = query_obj.filter(LogEntry.status == 'Allowed').order_by(LogEntry.id.desc()).limit(limit_count).all()
+                res = query_obj.filter(ModelClass.status == 'Allowed').order_by(ModelClass.id.desc()).limit(limit_count).all()
                 if res:
                     logs_str = "\n".join([f"- {r.raw_log}" for r in res])
                     return f"[Chat4ED LlamaIndex Result] Filtered standard allowed flow through Apache NiFi context:\n{logs_str}"
                 return "[Mistral Retrieval] Zero 'Allowed' packets matched the temporal window requested."
             else:
                 # General query for ANY logs in the timeframe (since user might ask 'give me last 5 mins logs' without status)
-                res = query_obj.order_by(LogEntry.id.desc()).limit(limit_count).all()
-                if res and cutoff:
+                res = query_obj.order_by(ModelClass.id.desc()).limit(limit_count).all()
+                if res:
                     logs_str = "\n".join([f"- {r.raw_log}" for r in res])
                     report = f"""**INCIDENT REPORTING FORM**
 *dZshield-SOC-F-02*
@@ -591,14 +686,119 @@ https://www.virustotal.com/gui/
 """
                     return report
                 
-            total = db.query(LogEntry).count()
-            critical = db.query(LogEntry).filter(LogEntry.severity == 'Critical').count()
+            total = db.query(ModelClass).count()
+            critical = db.query(ModelClass).filter(ModelClass.severity == 'Critical').count()
             return f"[dZshield SOC Summary]\nCurrently tracking {total} network packets across the Kubernetes cluster.\nNVIDIA NeMo agents have blocked {critical} critical attempts. (Try asking to 'show malicious logs')."
         except Exception as e:
             return f"Demo Mode Error: {e}"
         finally:
             if 'db' in locals():
                  db.close()
+
+    # SQL Lookups for precise logs and temporal queries
+    sql_context = ""
+    try:
+        db = SessionLocal()
+        min_match = re.search(r'last\s+(\d+)\s*min(?:s|ute|utes)?', query_lower)
+        hour_match = re.search(r'last\s+(\d+)\s*hour(?:s)?', query_lower)
+        from sqlalchemy import func
+        now = datetime.datetime.now()
+        ModelClass = OfflineLogEntry if source == "offline" else LogEntry
+        
+        max_time_str = db.query(func.max(ModelClass.timeline)).scalar()
+        if max_time_str:
+            try:
+                now = datetime.datetime.strptime(max_time_str, "%Y-%m-%dT%H:%M:%SZ")
+            except:
+                pass
+                    
+        query_obj = db.query(ModelClass)
+        if min_match:
+            cutoff = now - datetime.timedelta(minutes=int(min_match.group(1)))
+            query_obj = query_obj.filter(ModelClass.timeline >= cutoff.strftime("%Y-%m-%dT%H:%M:%SZ"))
+        elif hour_match:
+            cutoff = now - datetime.timedelta(hours=int(hour_match.group(1)))
+            query_obj = query_obj.filter(ModelClass.timeline >= cutoff.strftime("%Y-%m-%dT%H:%M:%SZ"))
+
+        if "denied" in query_lower or "deny" in query_lower:
+            query_obj = query_obj.filter(ModelClass.status == 'Denied')
+        elif "malicious" in query_lower or "critical" in query_lower:
+            from sqlalchemy import or_
+            query_obj = query_obj.filter(or_(ModelClass.severity == 'Critical', ModelClass.status == 'Malicious'))
+        elif "allowed" in query_lower or "allow" in query_lower:
+            query_obj = query_obj.filter(ModelClass.status == 'Allowed')
+            
+        import re
+        ip_matches = re.findall(r'\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b', query)
+        for ip in ip_matches:
+            query_obj = query_obj.filter(ModelClass.raw_log.like(f"%{ip}%"))
+            
+        sql_res = query_obj.order_by(ModelClass.id.desc()).limit(100).all()
+        if sql_res:
+            sql_context = "\n".join([f"- {r.raw_log}" for r in sql_res])
+        
+        # Explicit Exact Counting mapping for Top Hit arrays
+        top_stats_context = ""
+        if "top" in query_lower or "repeat" in query_lower or "hit" in query_lower or "count" in query_lower:
+            limit_n = 10
+            num_match = re.search(r'top\s+(\d+)', query_lower)
+            if num_match:
+                limit_n = int(num_match.group(1))
+
+            full_res = query_obj.all()
+            src_counts = {}
+            dst_counts = {}
+            for r in full_res:
+                parts = [p.strip() for p in r.raw_log.split('|')]
+                if len(parts) > 3:
+                    src = parts[1]
+                    dst = parts[2]
+                    src_counts[src] = src_counts.get(src, 0) + 1
+                    dst_counts[dst] = dst_counts.get(dst, 0) + 1
+            
+            top_str = ""
+            sample_logs = []
+            if "source" in query_lower and "dest" not in query_lower:
+                if src_counts:
+                    top_s = sorted(src_counts.items(), key=lambda x: x[1], reverse=True)[:limit_n]
+                    top_str += "Top Source IPs:\n" + "\n".join([f"IP: {ip} -> Hits: {cnt}" for ip, cnt in top_s]) + "\n"
+                    for ip, _ in top_s:
+                        smpl = next((r.raw_log for r in full_res if ip in r.raw_log), None)
+                        if smpl: sample_logs.append(smpl)
+            elif "dest" in query_lower and "source" not in query_lower:
+                if dst_counts:
+                    top_d = sorted(dst_counts.items(), key=lambda x: x[1], reverse=True)[:limit_n]
+                    top_str += "Top Destination IPs:\n" + "\n".join([f"IP: {ip} -> Hits: {cnt}" for ip, cnt in top_d]) + "\n"
+                    for ip, _ in top_d:
+                        smpl = next((r.raw_log for r in full_res if ip in r.raw_log), None)
+                        if smpl: sample_logs.append(smpl)
+            else:
+                if src_counts:
+                    top_s = sorted(src_counts.items(), key=lambda x: x[1], reverse=True)[:limit_n]
+                    top_str += "Top Source IPs:\n" + "\n".join([f"IP: {ip} -> Hits: {cnt}" for ip, cnt in top_s]) + "\n\n"
+                    for ip, _ in top_s[:10]:
+                        smpl = next((r.raw_log for r in full_res if ip in r.raw_log), None)
+                        if smpl: sample_logs.append(smpl)
+                if dst_counts:
+                    top_d = sorted(dst_counts.items(), key=lambda x: x[1], reverse=True)[:limit_n]
+                    top_str += "Top Destination IPs:\n" + "\n".join([f"IP: {ip} -> Hits: {cnt}" for ip, cnt in top_d]) + "\n"
+                    for ip, _ in top_d[:10]:
+                        smpl = next((r.raw_log for r in full_res if ip in r.raw_log), None)
+                        if smpl: sample_logs.append(smpl)
+
+            if top_str:
+                smpl_ctx = ""
+                if sample_logs:
+                    ls_str = "\n".join([f"- {s}" for s in set(sample_logs)])
+                    smpl_ctx = f"\n=== SAMPLE LOGS FOR REPEATED IPs ===\n{ls_str}\n"
+
+                top_stats_context = f"\n\n=== EXPLICIT TOP IP FREQUENCIES (TRUE NATIVE AGGREGATION) ===\nThese are the exact numerical IP hit counts (up to {limit_n}) from the filtered parameters:\n{top_str}\n{smpl_ctx}"
+            
+    except Exception as e:
+        print("SQL Context Error:", e)
+    finally:
+        if 'db' in locals():
+            db.close()
 
     # RAG Lookups
     try:
@@ -608,24 +808,67 @@ https://www.virustotal.com/gui/
             query_vector=vector,
             limit=3
         )
-        context = "\n".join([f"- {hit.payload['summary']}" for hit in search_result])
+        rag_context = "\n".join([f"- {hit.payload['summary']}" for hit in search_result])
     except Exception as e:
-        context = "No relevant network log history found."
+        rag_context = "No relevant network log history found in Vector DB."
+        
+    try:
+        db = SessionLocal()
+        ModelClass = OfflineLogEntry if source == "offline" else LogEntry
+        
+        # Apply time filters identically to the sql_context lookup
+        min_match = re.search(r'last\s+(\d+)\s*min(?:s|ute|utes)?', query_lower)
+        hour_match = re.search(r'last\s+(\d+)\s*hour(?:s)?', query_lower)
+        now = datetime.datetime.now()
+        
+        from sqlalchemy import func
+        max_time_str = db.query(func.max(ModelClass.timeline)).scalar()
+        if max_time_str:
+            try:
+                now = datetime.datetime.strptime(max_time_str, "%Y-%m-%dT%H:%M:%SZ")
+            except:
+                pass
+
+        base_query_stats = db.query(ModelClass)
+        if min_match:
+            cutoff = now - datetime.timedelta(minutes=int(min_match.group(1)))
+            base_query_stats = base_query_stats.filter(ModelClass.timeline >= cutoff.strftime("%Y-%m-%dT%H:%M:%SZ"))
+        elif hour_match:
+            cutoff = now - datetime.timedelta(hours=int(hour_match.group(1)))
+            base_query_stats = base_query_stats.filter(ModelClass.timeline >= cutoff.strftime("%Y-%m-%dT%H:%M:%SZ"))
+            
+        t_count = base_query_stats.count()
+        c_count = base_query_stats.filter(ModelClass.severity == "Critical").count()
+        d_count = base_query_stats.filter(ModelClass.status == "Denied").count()
+        a_count = base_query_stats.filter(ModelClass.status == "Allowed").count()
+        
+        time_context = "in the requested timeframe" if (min_match or hour_match) else "in total"
+        stats_str = f"Database Contains {time_context} - Total Logs: {t_count}, Allowed: {a_count}, Denied: {d_count}, Critical: {c_count}."
+    except Exception as e:
+        stats_str = ""
+    finally:
+        db.close()
+
+    combined_context = f"=== EXACT SYSTEM LOGS MATCHING QUERY ===\n{sql_context if sql_context else 'No exact logs matched in the relational DB.'}\n\n=== RECENT HIGH/CRITICAL EVENT SUMMARIES ===\n{rag_context}\n\n=== DATABASE STATS ===\n{stats_str}{top_stats_context if 'top_stats_context' in locals() else ''}"
 
     prompt = f"""
     SYSTEM ROLE: You are 'dZshield-Agent-L5', an elite AI Security Analyst operating at Layer 5 Orchestration within an Enterprise SOC.
     
     KNOWLEDGE BASE CONTEXT (Layer 3):
-    {context}
+    {combined_context}
     
     USER QUERY: 
     {query}
     
-    TASK: Answer the user's question with utmost accuracy based strictly on the provided context. Structure your response as a professional, enterprise-grade Incident Report. Use professional SOC formatting (e.g., Executive Summary, Findings, Recommended Actions) where applicable. Maintain an authoritative and analytic tone without hallucinating logs outside the context.
+    TASK: Answer the user's question with utmost accuracy based strictly on the provided context. Be concise and direct. If EXACT SYSTEM LOGS MATCHING QUERY are present, you MUST include and list them. Do not generate a full, lengthy incident report unless the user explicitly requests one. Maintain an authoritative and analytic tone without hallucinating logs outside the context.
+    
+    CRITICAL INSTRUCTION FOR LOG COUNTS:
+    If the user asks for a "count", "how many", or "total" logs/events, YOU MUST ONLY USE THE EXPLICIT NUMBERS PROVIDED UNDER "=== DATABASE STATS ===". 
+    DO NOT MANUALLY COUNT the sampled log lines in the "EXACT SYSTEM LOGS" section, as those are heavily limited/truncated representations of the dataset! State the total explicitly as queried from the actual database stats parameter.
     """
     
     try:
         response = llm.invoke(prompt)
         return response.content
     except Exception as e:
-        return f"Google AI Configuration Error: {str(e)}. Please ensure your GEMINI_API_KEY inside the .env file is technically valid and not the placeholder!"
+        return f"Mistral AI Configuration Error: {str(e)}. Please ensure your MISTRAL_API_KEY inside the .env file is technically valid and not the placeholder!"

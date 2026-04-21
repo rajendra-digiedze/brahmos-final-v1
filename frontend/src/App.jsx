@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Shield, ShieldAlert, Activity, Search, MessageCircle, Database, Server, Network, Brain, Maximize2, Minimize2, ExternalLink, Trash2, Download, Settings, Sun, Moon, UserPlus, X } from 'lucide-react';
 import {
   AreaChart, Area, PieChart, Pie, Cell,
@@ -14,7 +14,7 @@ function App() {
   const [loginError, setLoginError] = useState('');
 
   const [showSettings, setShowSettings] = useState(false);
-  const [theme, setTheme] = useState("dark");
+  const [theme, setTheme] = useState("light");
   const [accentColor, setAccentColor] = useState("indigo");
   const [isAdminUnlocked, setIsAdminUnlocked] = useState(false);
   const [adminPasswordInput, setAdminPasswordInput] = useState("");
@@ -37,6 +37,9 @@ function App() {
   const [hasMaliciousAlert, setHasMaliciousAlert] = useState(false);
   const [lastCriticalId, setLastCriticalId] = useState(null);
 
+  const [logSource, setLogSource] = useState('live');
+  const [isUploading, setIsUploading] = useState(false);
+
   const [chatQuery, setChatQuery] = useState("");
   const [chatHistory, setChatHistory] = useState(() => {
     const saved = localStorage.getItem("chatHistory");
@@ -46,15 +49,21 @@ function App() {
   const [stats, setStats] = useState({ critical: 0, denied: 0, total: 0 });
   const [chartData, setChartData] = useState({ timeSeries: [], severityData: [] });
   const [isChatMaximized, setIsChatMaximized] = useState(false);
+  const [isLogsMaximized, setIsLogsMaximized] = useState(false);
 
   useEffect(() => {
     localStorage.setItem("chatHistory", JSON.stringify(chatHistory));
   }, [chatHistory]);
 
+  const messagesEndRef = useRef(null);
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [chatHistory, isChatting]);
+
   // Bug Fix: Reset Page Index if Filter changes
   useEffect(() => {
     setPage(1);
-  }, [activeTab, timeRange]);
+  }, [activeTab, timeRange, logSource]);
 
   useEffect(() => {
     let isMounted = true;
@@ -62,9 +71,9 @@ function App() {
     const fetchData = async () => {
       try {
         const [logsRes, statsRes, chartRes] = await Promise.all([
-          fetch(`${API_BASE}/logs?limit=500&page=${page}&time_range=${timeRange}&status_filter=${activeTab}`),
-          fetch(`${API_BASE}/logs/stats`),
-          fetch(`${API_BASE}/logs/chart?time_range=${timeRange}&status_filter=${activeTab}`)
+          fetch(`${API_BASE}/logs?limit=500&page=${page}&time_range=${timeRange}&status_filter=${activeTab}&source=${logSource}`),
+          fetch(`${API_BASE}/logs/stats?source=${logSource}`),
+          fetch(`${API_BASE}/logs/chart?time_range=${timeRange}&status_filter=${activeTab}&source=${logSource}`)
         ]);
         const logsData = await logsRes.json();
         const statsData = await statsRes.json();
@@ -114,7 +123,32 @@ function App() {
       isMounted = false;
       clearInterval(interval);
     };
-  }, [activeTab, timeRange, page]);
+  }, [activeTab, timeRange, page, logSource]);
+
+  const handleFileUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    setIsUploading(true);
+    const formData = new FormData();
+    formData.append('file', file);
+    try {
+      const res = await fetch(`${API_BASE}/logs/upload_offline`, {
+        method: 'POST',
+        body: formData,
+      });
+      const data = await res.json();
+      if (data.status === 'success') {
+        alert(data.message);
+        setLogSource('offline');
+      } else {
+        alert('Upload failed: ' + data.message);
+      }
+    } catch (err) {
+      alert('Error uploading file');
+    } finally {
+      setIsUploading(false);
+    }
+  };
 
   const handleChat = async (e) => {
     e.preventDefault();
@@ -129,7 +163,7 @@ function App() {
       const res = await fetch(`${API_BASE}/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: chatQuery })
+        body: JSON.stringify({ query: chatQuery, source: logSource })
       });
       const data = await res.json();
       setChatHistory([...newHistory, { role: "agent", content: data.response, pdf_url: data.pdf_url }]);
@@ -170,9 +204,11 @@ function App() {
         return {
           time: timeKey,
           count: c.count,
-          Critical: c.Critical,
-          High: c.High,
-          Low: lows
+          Critical: c.Critical || 0,
+          High: c.High || 0,
+          Low: lows,
+          Allowed: c.Allowed || 0,
+          Denied: c.Denied || 0
         };
       });
     }
@@ -180,7 +216,7 @@ function App() {
     const severityData = [
       { name: 'Critical', value: severityCount.Critical, color: '#ef4444' },
       { name: 'High', value: severityCount.High, color: '#f59e0b' },
-      { name: 'Low/Other', value: severityCount.Low, color: '#94a3b8' }
+      { name: 'Low/Other', value: severityCount.Low, color: '#475569' }
     ].filter(d => d.value > 0);
 
     setChartData({ timeSeries, severityData });
@@ -213,8 +249,8 @@ function App() {
   if (!isAuthenticated) {
     const strength = checkPasswordStrength(loginPassword);
     return (
-      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center font-sans p-4">
-        <div className="bg-slate-900 border border-slate-800 p-8 rounded-xl shadow-2xl max-w-md w-full relative overflow-hidden">
+      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center font-sans p-4">
+        <div className="bg-white border border-slate-200 p-8 rounded-xl shadow-2xl max-w-md w-full relative overflow-hidden">
           <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-indigo-500 to-cyan-400"></div>
           <div className="flex items-center gap-3 mb-8 justify-center">
             <ShieldAlert className="h-10 w-10 text-indigo-500" />
@@ -225,28 +261,28 @@ function App() {
           
           <form onSubmit={handleLogin} className="space-y-5">
             <div>
-              <label className="block text-sm font-medium text-slate-300 mb-2">Username</label>
+              <label className="block text-sm font-medium text-slate-700 mb-2">Username</label>
               <input
                 type="text"
                 value={loginUsername}
                 onChange={(e) => setLoginUsername(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-700 rounded-lg py-3 px-4 text-white focus:outline-none focus:border-indigo-500 transition-colors"
+                className="w-full bg-slate-50 border border-slate-300 rounded-lg py-3 px-4 text-slate-900 focus:outline-none focus:border-indigo-500 transition-colors"
                 placeholder="Enter username"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-slate-300 mb-2">Password</label>
+              <label className="block text-sm font-medium text-slate-700 mb-2">Password</label>
               <input
                 type="password"
                 value={loginPassword}
                 onChange={(e) => setLoginPassword(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-700 rounded-lg py-3 px-4 text-white focus:outline-none focus:border-indigo-500 transition-colors"
+                className="w-full bg-slate-50 border border-slate-300 rounded-lg py-3 px-4 text-slate-900 focus:outline-none focus:border-indigo-500 transition-colors"
                 placeholder="Enter password"
               />
               {loginPassword && (
                 <div className="mt-2 flex items-center justify-between text-xs font-semibold">
                   <span>Password Strength:</span>
-                  <span className={strength === 'Strong' ? 'text-green-500' : 'text-orange-500'}>
+                  <span className={strength === 'Strong' ? 'text-green-500' : 'text-amber-500'}>
                     {strength}
                   </span>
                 </div>
@@ -254,7 +290,7 @@ function App() {
             </div>
             
             {loginError && (
-              <div className="text-red-400 text-sm bg-red-500/10 border border-red-500/20 p-3 rounded text-center">
+              <div className="text-red-600 text-sm bg-red-500/10 border border-red-500/20 p-3 rounded text-center">
                 {loginError}
               </div>
             )}
@@ -269,7 +305,7 @@ function App() {
   }
 
   return (
-    <div className={`min-h-screen ${theme === 'light' ? 'bg-slate-50 text-slate-900' : 'bg-slate-950 text-white'} p-6 font-sans transition-colors duration-300`}>
+    <div className={`min-h-screen ${true ? 'bg-slate-50 text-slate-900' : 'bg-slate-50 text-slate-900'} p-6 font-sans transition-colors duration-300`}>
       <header className="mb-4 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <ShieldAlert className="h-8 w-8 text-indigo-500" />
@@ -277,24 +313,24 @@ function App() {
             BrahMos Enterprise SOC Dashboard
           </h1>
           {hasMaliciousAlert && (
-            <div className="ml-4 flex items-center gap-2 px-3 py-1 bg-red-900/50 border border-red-500 rounded-full animate-pulse transition-all">
+            <div className="ml-4 flex items-center gap-2 px-3 py-1 bg-red-100 border border-red-200 rounded-full animate-pulse transition-all">
               <div className="w-2.5 h-2.5 bg-red-500 rounded-full shadow-[0_0_8px_rgba(239,68,68,0.8)]"></div>
-              <span className="text-xs text-red-400 font-bold tracking-wider">MALICIOUS ALERT</span>
+              <span className="text-xs text-red-600 font-bold tracking-wider">MALICIOUS ALERT</span>
             </div>
           )}
         </div>
         <div className="flex gap-4">
-          <div className={`px-4 py-2 rounded-lg border flex items-center gap-2 ${theme==='light' ? 'bg-white border-slate-200' : 'bg-slate-900 border-slate-800'}`}>
-            <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse"></div>
-            <span className={`text-sm font-medium ${theme==='light' ? 'text-slate-800' : 'text-white'}`}>Critical (L2 NiFi): {maliciousCount}</span>
+          <div className={`px-4 py-2 rounded-lg border flex items-center gap-2 ${theme==='light' ? 'bg-white border-slate-200' : 'bg-white border-slate-200'}`}>
+            <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse shadow-sm"></div>
+            <span className={`text-sm font-medium ${theme==='light' ? 'text-slate-800' : 'text-slate-900'}`}>Critical (L2 NiFi): {maliciousCount}</span>
           </div>
-          <div className={`px-4 py-2 rounded-lg border flex items-center gap-2 ${theme==='light' ? 'bg-white border-slate-200' : 'bg-slate-900 border-slate-800'}`}>
+          <div className={`px-4 py-2 rounded-lg border flex items-center gap-2 ${theme==='light' ? 'bg-white border-slate-200' : 'bg-white border-slate-200'}`}>
             <div className="w-2 h-2 rounded-full bg-orange-500"></div>
-            <span className={`text-sm font-medium ${theme==='light' ? 'text-slate-800' : 'text-white'}`}>Denied (L1 K8s): {deniedCount}</span>
+            <span className={`text-sm font-medium ${theme==='light' ? 'text-slate-800' : 'text-slate-900'}`}>Denied (L1 K8s): {deniedCount}</span>
           </div>
           <button 
             onClick={() => setShowSettings(true)}
-            className={`p-2 rounded-lg border transition-colors ${theme==='light' ? 'bg-white border-slate-200 text-slate-500 hover:text-slate-800 hover:bg-slate-50' : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white hover:bg-slate-800'}`}
+            className={`p-2 rounded-lg border transition-colors ${theme==='light' ? 'bg-white border-slate-200 text-slate-500 hover:text-slate-800 hover:bg-slate-50' : 'bg-white border-slate-200 text-slate-500 hover:text-slate-900 hover:bg-slate-100'}`}
           >
             <Settings className="w-5 h-5" />
           </button>
@@ -302,21 +338,31 @@ function App() {
       </header>
 
       {/* Navigation & Filters */}
-      <div className={`flex flex-col lg:flex-row justify-between items-center p-4 rounded-xl shadow-xl border mb-6 gap-4 ${theme==='light' ? 'bg-white border-slate-200' : 'bg-slate-900 border-slate-800'}`}>
-        <div className="flex gap-2 w-full lg:w-auto overflow-x-auto">
+      <div className={`flex flex-col lg:flex-row justify-between items-center p-4 rounded-xl shadow-[0px_1px_2px_rgba(0,0,0,0.05)] hover:shadow-[0px_4px_8px_rgba(0,0,0,0.08)] border mb-6 gap-4 ${theme==='light' ? 'bg-white border-slate-200' : 'bg-white border-slate-200'}`}>
+        <div className="flex gap-2 w-full lg:w-auto overflow-x-auto items-center">
+          <div className="flex bg-slate-100 rounded-lg p-1 mr-2">
+            <button onClick={() => setLogSource('live')} className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${logSource === 'live' ? 'bg-indigo-600 text-white' : 'text-slate-500 hover:text-slate-900'}`}>Live</button>
+            <button onClick={() => setLogSource('offline')} className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${logSource === 'offline' ? 'bg-indigo-600 text-white' : 'text-slate-500 hover:text-slate-900'}`}>Offline</button>
+          </div>
+          {logSource === 'offline' && (
+            <label className="cursor-pointer bg-slate-100 hover:bg-slate-700 text-slate-700 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors border border-slate-300 whitespace-nowrap mr-2">
+              {isUploading ? 'Uploading...' : 'Upload Excel'}
+              <input type="file" accept=".xlsx,.xls" className="hidden" onChange={handleFileUpload} disabled={isUploading} />
+            </label>
+          )}
           {['All', 'Allowed', 'Denied', 'Malicious'].map(tab => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === tab ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}`}>
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === tab ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-700'}`}>
               {tab}
             </button>
           ))}
         </div>
         <div className="flex items-center gap-4 w-full lg:w-auto shrink-0">
-          <span className="text-slate-400 text-sm font-medium">Timeline Timeline:</span>
+          <span className="text-slate-500 text-sm font-medium">Timeline Timeline:</span>
           <select
-            className="bg-slate-950 border border-slate-700 rounded-lg py-2 px-3 text-sm text-white focus:outline-none focus:border-indigo-500 min-w-[140px]"
+            className="bg-slate-50 border border-slate-300 rounded-lg py-2 px-3 text-sm text-slate-900 focus:outline-none focus:border-indigo-500 min-w-[140px]"
             value={timeRange}
             onChange={(e) => setTimeRange(e.target.value)}
           >
@@ -339,13 +385,13 @@ function App() {
       {/* Charts Section */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
         {/* Time Series Area Chart */}
-        <div className="lg:col-span-2 bg-slate-900 rounded-xl border border-slate-800 shadow-xl p-4 h-72">
-          <h2 className="text-sm font-semibold flex items-center gap-2 text-slate-300 mb-4">
+        <div className="lg:col-span-2 bg-white rounded-xl border border-slate-200 shadow-[0px_1px_2px_rgba(0,0,0,0.05)] hover:shadow-[0px_4px_8px_rgba(0,0,0,0.08)] p-4 h-72">
+          <h2 className="text-sm font-semibold flex items-center gap-2 text-slate-700 mb-4">
             <Activity className="w-4 h-4" /> Traffic Flow ({activeTab === "All" ? "Events" : `${activeTab} Logs`}/sec)
           </h2>
           <ResponsiveContainer width="100%" height="85%">
             <AreaChart data={timeSeries}>
-              <defs>
+                            <defs>
                 <linearGradient id="colorCount" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%" stopColor="#6366f1" stopOpacity={0.8} />
                   <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
@@ -354,25 +400,37 @@ function App() {
                   <stop offset="5%" stopColor="#ef4444" stopOpacity={0.8} />
                   <stop offset="95%" stopColor="#ef4444" stopOpacity={0} />
                 </linearGradient>
+                <linearGradient id="colorAllow" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#22c55e" stopOpacity={0.4} />
+                  <stop offset="95%" stopColor="#22c55e" stopOpacity={0} />
+                </linearGradient>
+                <linearGradient id="colorDeny" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.6} />
+                  <stop offset="95%" stopColor="#f59e0b" stopOpacity={0} />
+                </linearGradient>
               </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="#334155" vertical={false} />
-              <XAxis dataKey="time" stroke="#94a3b8" fontSize={12} tickMargin={10} minTickGap={20} />
-              <YAxis stroke="#94a3b8" fontSize={12} />
+              <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" vertical={false} />
+              <XAxis dataKey="time" stroke="#475569" fontSize={12} tickMargin={10} minTickGap={20} />
+              <YAxis stroke="#475569" fontSize={12} />
               <Tooltip
-                contentStyle={{ backgroundColor: '#0f172a', borderColor: '#1e293b', borderRadius: '8px' }}
-                itemStyle={{ color: '#e2e8f0' }}
+                contentStyle={{ backgroundColor: '#FFFFFF', borderColor: '#E2E8F0', borderRadius: '8px' }}
+                itemStyle={{ color: '#0F172A' }}
               />
               <Area type="monotone" dataKey="count" name={activeTab === "All" ? "Total Events" : `${activeTab} Events`} stroke="#6366f1" fillOpacity={1} fill="url(#colorCount)" />
               {activeTab === "All" && (
-                <Area type="monotone" dataKey="Critical" name="Critical Events" stroke="#ef4444" fillOpacity={1} fill="url(#colorCrit)" />
+                <>
+                  <Area type="monotone" dataKey="Critical" name="Critical Events" stroke="#ef4444" fillOpacity={1} fill="url(#colorCrit)" />
+                  <Area type="monotone" dataKey="Allowed" name="Healthy/Allowed" stroke="#22c55e" fillOpacity={1} fill="url(#colorAllow)" />
+                  <Area type="monotone" dataKey="Denied" name="Denied Events" stroke="#f59e0b" fillOpacity={1} fill="url(#colorDeny)" />
+                </>
               )}
             </AreaChart>
           </ResponsiveContainer>
         </div>
 
         {/* Severity Distribution Pie Chart */}
-        <div className="bg-slate-900 rounded-xl border border-slate-800 shadow-xl p-4 h-72">
-          <h2 className="text-sm font-semibold flex items-center gap-2 text-slate-300 mb-4">
+        <div className="bg-white rounded-xl border border-slate-200 shadow-[0px_1px_2px_rgba(0,0,0,0.05)] hover:shadow-[0px_4px_8px_rgba(0,0,0,0.08)] p-4 h-72">
+          <h2 className="text-sm font-semibold flex items-center gap-2 text-slate-700 mb-4">
             <ShieldAlert className="w-4 h-4" /> Severity Distribution
           </h2>
           <ResponsiveContainer width="100%" height="85%">
@@ -392,8 +450,8 @@ function App() {
                 ))}
               </Pie>
               <Tooltip
-                contentStyle={{ backgroundColor: '#0f172a', borderColor: '#1e293b', borderRadius: '8px' }}
-                itemStyle={{ color: '#e2e8f0' }}
+                contentStyle={{ backgroundColor: '#FFFFFF', borderColor: '#E2E8F0', borderRadius: '8px' }}
+                itemStyle={{ color: '#0F172A' }}
               />
               <Legend verticalAlign="bottom" height={36} iconType="circle" />
             </PieChart>
@@ -403,64 +461,69 @@ function App() {
 
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
         {/* Integrations Panel */}
-        <div className="bg-slate-900 rounded-xl border border-slate-800 shadow-xl overflow-hidden flex flex-col h-[55vh] p-4 space-y-4">
-          <h2 className="text-lg font-semibold flex items-center gap-2 text-slate-300 pb-2 border-b border-slate-800">
+        <div className="bg-white rounded-xl border border-slate-200 shadow-[0px_1px_2px_rgba(0,0,0,0.05)] hover:shadow-[0px_4px_8px_rgba(0,0,0,0.08)] overflow-hidden flex flex-col h-[55vh] p-4 space-y-4">
+          <h2 className="text-lg font-semibold flex items-center gap-2 text-slate-700 pb-2 border-b border-slate-200">
             <Network className="w-5 h-5" /> Zero-Trust Topology
           </h2>
 
           <div className="space-y-3 flex-1 overflow-y-auto pr-2">
-            <div className="bg-slate-950 p-3 rounded-lg border border-indigo-900/50 flex flex-col gap-1">
+            <div className="bg-slate-50 p-3 rounded-lg border border-indigo-900/50 flex flex-col gap-1">
               <div className="flex justify-between items-center">
                 <span className="text-xs text-indigo-400 font-bold">L1: Infrastructure</span>
               </div>
-              <span className="text-sm text-slate-300 flex items-center gap-2"><Server className="w-3 h-3 text-green-400" /> Kubernetes / dZ GaaS</span>
+              <span className="text-sm text-slate-700 flex items-center gap-2"><Server className="w-3 h-3 text-green-400" /> Kubernetes / dZ GaaS</span>
             </div>
-            <div className="bg-slate-950 p-3 rounded-lg border border-indigo-900/50 flex flex-col gap-1">
+            <div className="bg-slate-50 p-3 rounded-lg border border-indigo-900/50 flex flex-col gap-1">
               <div className="flex justify-between items-center">
                 <span className="text-xs text-indigo-400 font-bold">L2: Data Platform</span>
               </div>
-              <span className="text-sm text-slate-300 flex items-center gap-2"><Database className="w-3 h-3 text-green-400" /> Apache NiFi / Atlas</span>
+              <span className="text-sm text-slate-700 flex items-center gap-2"><Database className="w-3 h-3 text-green-400" /> Apache NiFi / Atlas</span>
             </div>
-            <div className="bg-slate-950 p-3 rounded-lg border border-indigo-900/50 flex flex-col gap-1">
+            <div className="bg-slate-50 p-3 rounded-lg border border-indigo-900/50 flex flex-col gap-1">
               <div className="flex justify-between items-center">
                 <span className="text-xs text-indigo-400 font-bold">L3: Knowledge Base</span>
-                <a href="http://localhost:6333/dashboard" target="_blank" rel="noopener noreferrer" className="text-indigo-400 hover:text-indigo-300" title="Open Qdrant Visualizer"><ExternalLink className="w-3 h-3" /></a>
+                <a href="http://localhost:6333/dashboard" target="_blank" rel="noopener noreferrer" className="text-indigo-400 hover:text-indigo-700" title="Open Qdrant Visualizer"><ExternalLink className="w-3 h-3" /></a>
               </div>
-              <span className="text-sm text-slate-300 flex items-center gap-2"><Database className="w-3 h-3 text-green-400" /> Qdrant </span>
+              <span className="text-sm text-slate-700 flex items-center gap-2"><Database className="w-3 h-3 text-green-400" /> Qdrant </span>
             </div>
-            <div className="bg-slate-950 p-3 rounded-lg border border-indigo-900/50 flex flex-col gap-1">
+            <div className="bg-slate-50 p-3 rounded-lg border border-indigo-900/50 flex flex-col gap-1">
               <div className="flex justify-between items-center">
                 <span className="text-xs text-indigo-400 font-bold">L4/L5: AI Matrix</span>
-                <a href="http://localhost:8000/docs" target="_blank" rel="noopener noreferrer" className="text-indigo-400 hover:text-indigo-300" title="Open AI LLMA/Mistral API"><ExternalLink className="w-3 h-3" /></a>
+                <a href="http://localhost:8000/docs" target="_blank" rel="noopener noreferrer" className="text-indigo-400 hover:text-indigo-700" title="Open AI LLMA/Mistral API"><ExternalLink className="w-3 h-3" /></a>
               </div>
-              <span className="text-sm text-slate-300 flex items-center gap-2"><Brain className="w-3 h-3 text-green-400" /> LLMA Tools</span>
+              <span className="text-sm text-slate-700 flex items-center gap-2"><Brain className="w-3 h-3 text-green-400" /> LLMA Tools</span>
             </div>
-            <div className="bg-slate-950 p-3 rounded-lg border border-indigo-900/50 flex flex-col gap-1">
+            <div className="bg-slate-50 p-3 rounded-lg border border-indigo-900/50 flex flex-col gap-1">
               <div className="flex justify-between items-center">
                 <span className="text-xs text-indigo-400 font-bold">L6: Orchestration</span>
-                <a href="http://localhost:5678" target="_blank" rel="noopener noreferrer" className="text-indigo-400 hover:text-indigo-300" title="Open n8n Interface"><ExternalLink className="w-3 h-3" /></a>
+                <a href="http://localhost:5678" target="_blank" rel="noopener noreferrer" className="text-indigo-400 hover:text-indigo-700" title="Open n8n Interface"><ExternalLink className="w-3 h-3" /></a>
               </div>
-              <span className="text-sm text-slate-300 flex items-center gap-2"><Activity className="w-3 h-3 text-green-400" /> n8n Automation</span>
+              <span className="text-sm text-slate-700 flex items-center gap-2"><Activity className="w-3 h-3 text-green-400" /> n8n Automation</span>
             </div>
-            <div className="bg-slate-950 p-3 rounded-lg border border-indigo-900/50 flex flex-col gap-1">
+            <div className="bg-slate-50 p-3 rounded-lg border border-indigo-900/50 flex flex-col gap-1">
               <div className="flex justify-between items-center">
                 <span className="text-xs text-indigo-400 font-bold">L7: Agent Web</span>
-                <a href="/" target="_blank" rel="noopener noreferrer" className="text-indigo-400 hover:text-indigo-300" title="Open Dashboard"><ExternalLink className="w-3 h-3" /></a>
+                <a href="/" target="_blank" rel="noopener noreferrer" className="text-indigo-400 hover:text-indigo-700" title="Open Dashboard"><ExternalLink className="w-3 h-3" /></a>
               </div>
-              <span className="text-sm text-slate-300 flex items-center gap-2"><Shield className="w-3 h-3 text-green-400" /> Web Dashboard</span>
+              <span className="text-sm text-slate-700 flex items-center gap-2"><Shield className="w-3 h-3 text-green-400" /> Web Dashboard</span>
             </div>
           </div>
         </div>
 
         {/* Log Viewer Widget */}
-        <div className="lg:col-span-2 bg-slate-900 rounded-xl border border-slate-800 shadow-xl overflow-hidden flex flex-col h-[55vh]">
-          <div className="p-4 border-b border-slate-800 bg-slate-900/50 flex justify-between items-center">
-            <h2 className="text-lg font-semibold flex items-center gap-2"><Activity className="w-5 h-5" /> Live Network Logs</h2>
-            <span className="text-xs text-slate-400">Updates every 2s</span>
+        <div className={`bg-white rounded-xl border border-slate-200 shadow-[0px_1px_2px_rgba(0,0,0,0.05)] overflow-hidden flex flex-col ${isLogsMaximized ? 'fixed inset-4 z-50 lg:inset-x-20 lg:inset-y-10' : 'lg:col-span-2 h-[55vh]'}`}>
+          <div className="p-4 border-b border-slate-200 bg-white/50 flex justify-between items-center">
+            <h2 className="text-lg font-semibold flex items-center gap-2"><Activity className="w-5 h-5" /> {logSource === 'live' ? 'Live Network Logs' : 'Offline Uploaded Logs'}</h2>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-slate-500">Updates every 2s</span>
+              <button onClick={() => setIsLogsMaximized(!isLogsMaximized)} className="p-1 hover:bg-slate-200 rounded-md text-slate-600 transition-colors">
+                {isLogsMaximized ? <Minimize2 className="w-5 h-5" /> : <Maximize2 className="w-5 h-5" />}
+              </button>
+            </div>
           </div>
           <div className="overflow-y-auto flex-1 p-0">
             <table className="w-full text-left text-sm whitespace-nowrap">
-              <thead className="bg-slate-800/50 text-slate-300 sticky top-0">
+              <thead className="bg-slate-100 text-slate-700 sticky top-0">
                 <tr>
                   <th className="px-4 py-3 font-medium">Timeline</th>
                   <th className="px-4 py-3 font-medium">Source IP</th>
@@ -469,7 +532,7 @@ function App() {
                   <th className="px-4 py-3 font-medium">Severity</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-800/50">
+              <tbody className="divide-y divide-slate-200">
                 {Array.isArray(logs) && logs.map((log) => {
                   // extract fields from raw string: timeline| Source IP| Destination IP| Source Port| Destiantion Port| Status| Seviority
                   if (!log || !log.raw_log) return null;
@@ -479,22 +542,22 @@ function App() {
                   const dst = parts.length > 4 ? `${parts[2]}:${parts[4]}` : "N/A";
 
                   return (
-                    <tr key={log.id} className="hover:bg-slate-800/30 transition-colors">
-                      <td className="px-4 py-2 text-slate-400 font-mono text-xs">{new Date(time).toLocaleTimeString()}</td>
-                      <td className="px-4 py-2 font-mono text-slate-300">{src}</td>
-                      <td className="px-4 py-2 font-mono text-slate-300">{dst}</td>
+                    <tr key={log.id} className="hover:bg-slate-50 transition-colors transition-colors">
+                      <td className="px-4 py-2 text-slate-500 font-mono text-xs">{new Date(time).toLocaleTimeString()}</td>
+                      <td className="px-4 py-2 font-mono text-slate-700">{src}</td>
+                      <td className="px-4 py-2 font-mono text-slate-700">{dst}</td>
                       <td className="px-4 py-2">
-                        <span className={`px-2 py-1 rounded text-xs font-medium ${log.status === 'Allowed' ? 'bg-green-500/10 text-green-400' :
-                          log.status === 'Denied' ? 'bg-orange-500/10 text-orange-400' :
-                            'bg-red-500/10 text-red-400'
+                        <span className={`px-2 py-1 rounded text-xs font-medium ${log.status === 'Allowed' ? 'bg-green-100 text-green-700 font-bold' :
+                          log.status === 'Denied' ? 'bg-red-100 text-red-700 font-bold' :
+                            'bg-red-500/10 text-red-600'
                           }`}>
                           {log.status}
                         </span>
                       </td>
                       <td className="px-4 py-2">
-                        <span className={`px-2 py-1 rounded text-xs font-medium ${log.severity === 'Critical' ? 'text-red-500 font-bold' :
-                          log.severity === 'High' ? 'text-orange-500' :
-                            'text-slate-400'
+                        <span className={`px-2 py-1 rounded text-xs font-medium ${log.severity === 'Critical' ? 'text-red-600 font-bold' :
+                          log.severity === 'High' ? 'text-amber-500' :
+                            'text-slate-500'
                           }`}>
                           {log.severity}
                         </span>
@@ -511,19 +574,19 @@ function App() {
             )}
           </div>
           {/* Pagination Controls */}
-          <div className="flex justify-between items-center p-3 border-t border-slate-800 bg-slate-900/50">
+          <div className="flex justify-between items-center p-3 border-t border-slate-200 bg-white/50">
             <button
               disabled={page === 1}
               onClick={() => setPage(p => Math.max(1, p - 1))}
-              className="px-3 py-1 bg-slate-800 text-slate-300 rounded hover:bg-indigo-600 hover:text-white transition-colors disabled:opacity-50"
+              className="px-3 py-1 bg-slate-100 text-slate-700 rounded hover:bg-indigo-600 hover:text-slate-900 transition-colors disabled:opacity-50"
             >
               Previous 500
             </button>
-            <span className="text-slate-400 text-sm">Page {page}</span>
+            <span className="text-slate-500 text-sm">Page {page}</span>
             <button
               disabled={logs.length < 500}
               onClick={() => setPage(p => p + 1)}
-              className="px-3 py-1 bg-slate-800 text-slate-300 rounded hover:bg-indigo-600 hover:text-white transition-colors disabled:opacity-50"
+              className="px-3 py-1 bg-slate-100 text-slate-700 rounded hover:bg-indigo-600 hover:text-slate-900 transition-colors disabled:opacity-50"
             >
               Next 500
             </button>
@@ -531,22 +594,22 @@ function App() {
         </div>
 
         {/* AI Agent Chat Interface */}
-        <div className={`bg-slate-900 rounded-xl border border-slate-800 shadow-xl overflow-hidden flex flex-col ${isChatMaximized ? 'fixed inset-4 z-50 lg:inset-x-20 lg:inset-y-10' : 'h-[55vh]'}`}>
-          <div className="p-4 border-b border-slate-800 bg-indigo-950/30 flex justify-between items-center">
-            <h2 className="text-lg font-semibold flex items-center gap-2 text-indigo-300">
+        <div className={`bg-white rounded-xl border border-slate-200 shadow-[0px_1px_2px_rgba(0,0,0,0.05)] hover:shadow-[0px_4px_8px_rgba(0,0,0,0.08)] overflow-hidden flex flex-col ${isChatMaximized ? 'fixed inset-4 z-50 lg:inset-x-20 lg:inset-y-10' : 'h-[55vh]'}`}>
+          <div className="p-4 border-b border-slate-200 bg-indigo-950/30 flex justify-between items-center">
+            <h2 className="text-lg font-semibold flex items-center gap-2 text-indigo-700">
               <MessageCircle className="w-5 h-5" /> BrahMos Chat Bot
             </h2>
             <div className="flex items-center gap-2">
               <button
                 onClick={handleClearChat}
-                className="p-1 hover:bg-slate-800 rounded-md text-red-400 hover:text-red-300 transition-colors"
+                className="p-1 hover:bg-slate-100 rounded-md text-red-600 hover:text-red-300 transition-colors"
                 title="Clear Chat History"
               >
                 <Trash2 className="w-4 h-4" />
               </button>
               <button
                 onClick={() => setIsChatMaximized(!isChatMaximized)}
-                className="p-1 hover:bg-slate-800 rounded-md text-slate-400 transition-colors"
+                className="p-1 hover:bg-slate-100 rounded-md text-slate-500 transition-colors"
                 title={isChatMaximized ? "Minimize Console" : "Maximize Console for Reports"}
               >
                 {isChatMaximized ? <Minimize2 className="w-5 h-5" /> : <Maximize2 className="w-5 h-5" />}
@@ -554,8 +617,8 @@ function App() {
             </div>
           </div>
 
-          <div className={`flex-1 overflow-y-auto p-4 space-y-4 ${isChatMaximized ? 'bg-slate-950' : ''}`}>
-            <div className="bg-slate-800/50 rounded-lg p-3 text-sm text-slate-300 inline-block">
+          <div className={`flex-1 overflow-y-auto p-4 space-y-4 ${isChatMaximized ? 'bg-slate-50' : ''}`}>
+            <div className="bg-slate-100 rounded-lg p-3 text-sm text-slate-700 inline-block">
               Welcome to the BrahMos Analyst Console. My logic is governed by CrewAI orchestration and Mistral NLP models. How can I assist with your attack graph investigations today? You can ask me for reports on any timeframe!
             </div>
 
@@ -563,12 +626,12 @@ function App() {
               <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                 <div className={`rounded-lg p-4 text-sm whitespace-pre-wrap flex-col ${msg.role === 'user'
                   ? 'bg-blue-600/20 text-blue-200 border border-blue-500/20 max-w-[85%]'
-                  : 'bg-slate-800/50 text-slate-300 border border-slate-700/50 w-full lg:max-w-[95%]'
+                  : 'bg-slate-100 text-slate-700 border border-slate-300/50 w-full lg:max-w-[95%]'
                   }`}>
                   {msg.content}
                   {msg.pdf_url && (
                     <div className="mt-3">
-                      <a href={msg.pdf_url.startsWith('http') ? msg.pdf_url : API_BASE.replace('/api', '') + msg.pdf_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 rounded-lg text-white font-semibold hover:bg-indigo-500 transition-colors shadow-lg shadow-indigo-900/20 w-fit">
+                      <a href={msg.pdf_url.startsWith('http') ? msg.pdf_url : API_BASE.replace('/api', '') + msg.pdf_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 rounded-lg text-slate-900 font-semibold hover:bg-indigo-500 transition-colors shadow-lg shadow-indigo-900/20 w-fit">
                         <Download className="w-4 h-4" /> Download PDF Report
                       </a>
                     </div>
@@ -579,22 +642,23 @@ function App() {
             {isChatting && (
               <div className="text-slate-500 text-sm italic">Agent is analyzing logs and preparing reports...</div>
             )}
+            <div ref={messagesEndRef} />
           </div>
 
-          <form onSubmit={handleChat} className="p-4 border-t border-slate-800 bg-slate-900/50">
+          <form onSubmit={handleChat} className="p-4 border-t border-slate-200 bg-white/50">
             <div className="relative">
               <input
                 type="text"
                 value={chatQuery}
                 onChange={e => setChatQuery(e.target.value)}
                 placeholder="Ask about logs, reports, or timeframes (e.g. 'Give me logs for last 5 mins')..."
-                className="w-full bg-slate-950 border border-slate-700 rounded-lg py-3 pl-4 pr-12 text-sm text-white focus:outline-none focus:border-indigo-500 transition-colors"
+                className="w-full bg-slate-50 border border-slate-300 rounded-lg py-3 pl-4 pr-12 text-sm text-slate-900 focus:outline-none focus:border-indigo-500 transition-colors"
                 disabled={isChatting}
               />
               <button
                 type="submit"
                 disabled={isChatting}
-                className="absolute right-2 top-1/2 -translate-y-1/2 p-2 bg-indigo-600 hover:bg-indigo-500 rounded-md text-white transition-colors disabled:opacity-50"
+                className="absolute right-2 top-1/2 -translate-y-1/2 p-2 bg-indigo-600 hover:bg-indigo-500 rounded-md text-slate-900 transition-colors disabled:opacity-50"
               >
                 <Search className="w-4 h-4" />
               </button>
@@ -602,6 +666,9 @@ function App() {
           </form>
         </div>
       </div>
+      {isLogsMaximized && (
+        <div className="fixed inset-0 bg-black/60 z-40 backdrop-blur-sm" onClick={() => setIsLogsMaximized(false)}></div>
+      )}
       {isChatMaximized && (
         <div className="fixed inset-0 bg-black/60 z-40 backdrop-blur-sm" onClick={() => setIsChatMaximized(false)}></div>
       )}
@@ -609,8 +676,8 @@ function App() {
       {/* Settings Modal */}
       {showSettings && (
         <div className="fixed inset-0 bg-black/60 z-50 backdrop-blur-sm flex items-center justify-center font-sans p-4">
-          <div className="bg-slate-900 border border-slate-700 p-6 rounded-xl shadow-2xl max-w-md w-full relative">
-            <button onClick={() => setShowSettings(false)} className="absolute top-4 right-4 text-slate-400 hover:text-white">
+          <div className="bg-white border border-slate-300 p-6 rounded-xl shadow-2xl max-w-md w-full relative">
+            <button onClick={() => setShowSettings(false)} className="absolute top-4 right-4 text-slate-500 hover:text-slate-900">
               <X className="w-5 h-5" />
             </button>
             <h2 className="text-xl font-bold bg-gradient-to-r from-indigo-400 to-cyan-400 bg-clip-text text-transparent mb-6">
@@ -619,19 +686,19 @@ function App() {
             
             <div className="space-y-6">
               <div>
-                <h3 className="text-sm font-semibold text-slate-300 mb-3">Theme Settings</h3>
+                <h3 className="text-sm font-semibold text-slate-700 mb-3">Theme Settings</h3>
                 <div className="flex gap-3">
-                   <button onClick={() => setTheme('dark')} className={`flex items-center gap-2 px-3 py-2 rounded-lg border transition-colors ${theme==='dark' ? 'border-indigo-500 bg-indigo-500/20 text-white' : 'border-slate-700 text-slate-400 hover:bg-slate-800'}`}>
+                   <button onClick={() => setTheme('dark')} className={`flex items-center gap-2 px-3 py-2 rounded-lg border transition-colors ${theme==='dark' ? 'border-indigo-500 bg-indigo-500/20 text-slate-900' : 'border-slate-300 text-slate-500 hover:bg-slate-100'}`}>
                      <Moon className="w-4 h-4"/> Dark
                    </button>
-                   <button onClick={() => setTheme('light')} className={`flex items-center gap-2 px-3 py-2 rounded-lg border transition-colors ${theme==='light' ? 'border-indigo-500 bg-indigo-500/20 text-white' : 'border-slate-700 text-slate-400 hover:bg-slate-800'}`}>
+                   <button onClick={() => setTheme('light')} className={`flex items-center gap-2 px-3 py-2 rounded-lg border transition-colors ${theme==='light' ? 'border-indigo-500 bg-indigo-500/20 text-slate-900' : 'border-slate-300 text-slate-500 hover:bg-slate-100'}`}>
                      <Sun className="w-4 h-4"/> Light
                    </button>
                 </div>
               </div>
 
               <div>
-                <h3 className="text-sm font-semibold text-slate-300 mb-3">Accent Color</h3>
+                <h3 className="text-sm font-semibold text-slate-700 mb-3">Accent Color</h3>
                 <div className="flex gap-2">
                   {['indigo', 'emerald', 'blue', 'orange'].map(color => (
                      <button key={color} onClick={() => setAccentColor(color)} className={`w-8 h-8 rounded-full border-2 transition-transform hover:scale-110 ${accentColor === color ? 'border-white' : 'border-transparent'}`} style={{ backgroundColor: color === 'indigo' ? '#6366f1' : color === 'emerald' ? '#10b981' : color === 'blue' ? '#3b82f6' : '#f97316' }} />
@@ -639,8 +706,8 @@ function App() {
                 </div>
               </div>
 
-              <div className="border-t border-slate-700 pt-6">
-                <h3 className="text-sm font-semibold text-slate-300 mb-3">Admin Panel (User Management)</h3>
+              <div className="border-t border-slate-300 pt-6">
+                <h3 className="text-sm font-semibold text-slate-700 mb-3">Admin Panel (User Management)</h3>
                 {!isAdminUnlocked ? (
                   <div className="space-y-3">
                     <input 
@@ -648,27 +715,27 @@ function App() {
                        placeholder="Admin Password"
                        value={adminPasswordInput}
                        onChange={e => setAdminPasswordInput(e.target.value)}
-                       className="w-full bg-slate-950 border border-slate-700 rounded-lg py-2 px-3 text-sm text-white focus:outline-none focus:border-indigo-500"
+                       className="w-full bg-slate-50 border border-slate-300 rounded-lg py-2 px-3 text-sm text-slate-900 focus:outline-none focus:border-indigo-500"
                     />
                     <button 
                        onClick={() => {
                          if(adminPasswordInput === 'Cisco@12345') setIsAdminUnlocked(true);
                          else alert('Invalid Admin Password');
                        }}
-                       className="w-full bg-slate-800 hover:bg-slate-700 text-slate-200 py-2 rounded-lg text-sm font-medium transition-colors border border-slate-700"
+                       className="w-full bg-slate-100 hover:bg-slate-700 text-slate-200 py-2 rounded-lg text-sm font-medium transition-colors border border-slate-300"
                     >
                       Unlock Admin Functions
                     </button>
                   </div>
                 ) : (
-                  <div className="bg-slate-950/50 p-4 rounded-lg border border-slate-800 space-y-3">
+                  <div className="bg-slate-50/50 p-4 rounded-lg border border-slate-200 space-y-3">
                     <h4 className="text-xs font-bold text-indigo-400 uppercase tracking-wider mb-2 flex items-center gap-2"><UserPlus className="w-3 h-3"/> Manage Users</h4>
                     {customUsers.length > 0 && (
                       <div className="mb-4 space-y-2">
                         {customUsers.map((u, i) => (
-                           <div key={i} className="flex justify-between items-center bg-slate-900 border border-slate-700 p-2 rounded">
-                              <span className="text-sm text-slate-300">{u.username}</span>
-                              <button onClick={() => setCustomUsers(customUsers.filter((_, idx) => idx !== i))} className="text-red-400 hover:text-red-300">
+                           <div key={i} className="flex justify-between items-center bg-white border border-slate-300 p-2 rounded">
+                              <span className="text-sm text-slate-700">{u.username}</span>
+                              <button onClick={() => setCustomUsers(customUsers.filter((_, idx) => idx !== i))} className="text-red-600 hover:text-red-300">
                                 <Trash2 className="w-4 h-4" />
                               </button>
                            </div>
@@ -680,14 +747,14 @@ function App() {
                        placeholder="New Username"
                        value={newUsername}
                        onChange={e => setNewUsername(e.target.value)}
-                       className="w-full bg-slate-900 border border-slate-700 rounded-lg py-2 px-3 text-sm text-white focus:outline-none focus:border-indigo-500"
+                       className="w-full bg-white border border-slate-300 rounded-lg py-2 px-3 text-sm text-slate-900 focus:outline-none focus:border-indigo-500"
                     />
                     <input 
                        type="password" 
                        placeholder="New Password"
                        value={newPassword}
                        onChange={e => setNewPassword(e.target.value)}
-                       className="w-full bg-slate-900 border border-slate-700 rounded-lg py-2 px-3 text-sm text-white focus:outline-none focus:border-indigo-500"
+                       className="w-full bg-white border border-slate-300 rounded-lg py-2 px-3 text-sm text-slate-900 focus:outline-none focus:border-indigo-500"
                     />
                     <button 
                        onClick={() => {

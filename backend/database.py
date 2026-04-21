@@ -19,6 +19,15 @@ class LogEntry(Base):
     status = Column(String(255), index=True)
     severity = Column(String(255), index=True)
 
+class OfflineLogEntry(Base):
+    __tablename__ = "offline_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    raw_log = Column(String(1024), index=True)
+    timeline = Column(String(255), index=True)
+    status = Column(String(255), index=True)
+    severity = Column(String(255), index=True)
+
 Base.metadata.create_all(bind=engine)
 
 def get_db():
